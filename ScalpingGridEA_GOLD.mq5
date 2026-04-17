@@ -19,6 +19,7 @@ input double RSI_Buy      = 55.0;  // RSI > seuil = BUY
 input double RSI_Sell     = 45.0;  // RSI < seuil = SELL
 
 input group "=== GRID ==="
+input int    TradesParSignal = 3;   // Nb trades ouverts d'un coup au signal
 input double GridStep     = 2.0;   // Ecart entre niveaux ($)
 input int    MaxLevels    = 4;     // Max niveaux grille
 input double Lot          = 0.01;  // Lot de base
@@ -120,11 +121,11 @@ void OnTick()
    Print(StringFormat("Bar | EMA:%s RSI:%.1f | BUY:%d SELL:%d | Spread:$%.2f",
          emaBull?"UP":"DOWN", r[0], nBuy, nSell, sp));
 
-   //--- Entrée niveau 1 (BUY et SELL peuvent s'ouvrir simultanément)
+   //--- Entrée : ouvre TradesParSignal trades d'un coup
    if(emaBull && rsiBull && nBuy==0)
-     { if(Buy(CalcLot(0))) g_buy=true; }
+     { for(int k=0;k<TradesParSignal;k++) if(Buy(CalcLot(0))) g_buy=true; }
    if(emaBear && rsiBear && nSell==0)
-     { if(Sell(CalcLot(0))) g_sell=true; }
+     { for(int k=0;k<TradesParSignal;k++) if(Sell(CalcLot(0))) g_sell=true; }
 
    //--- Niveaux grille
    if(g_buy && nBuy>0 && nBuy<MaxLevels)
