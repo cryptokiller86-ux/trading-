@@ -120,11 +120,11 @@ void OnTick()
    Print(StringFormat("Bar | EMA:%s RSI:%.1f | BUY:%d SELL:%d | Spread:$%.2f",
          emaBull?"UP":"DOWN", r[0], nBuy, nSell, sp));
 
-   //--- Entrée niveau 1
-   if(emaBull && rsiBull && nBuy==0 && nSell==0)
-     { if(Buy(CalcLot(0))) { g_buy=true; g_sell=false; } }
-   else if(emaBear && rsiBear && nSell==0 && nBuy==0)
-     { if(Sell(CalcLot(0))) { g_sell=true; g_buy=false; } }
+   //--- Entrée niveau 1 (BUY et SELL peuvent s'ouvrir simultanément)
+   if(emaBull && rsiBull && nBuy==0)
+     { if(Buy(CalcLot(0))) g_buy=true; }
+   if(emaBear && rsiBear && nSell==0)
+     { if(Sell(CalcLot(0))) g_sell=true; }
 
    //--- Niveaux grille
    if(g_buy && nBuy>0 && nBuy<MaxLevels)
@@ -142,11 +142,16 @@ void OnTick()
 void DoTimeout()
   {
    datetime now=TimeCurrent();
-   for(int i=Open()-1;i>=0;i--)
+   for(int i=PositionsTotal()-1;i>=0;i--)
      {
       if(!pos.SelectByIndex(i)||pos.Symbol()!=_Symbol||pos.Magic()!=MagicNumber) continue;
-      if((int)((now-pos.Time())/60) >= MaxMinutes)
-        { CloseAll(StringFormat("TIMEOUT %dmin",(int)((now-pos.Time())/60))); return; }
+      int age=(int)((now-pos.Time())/60);
+      if(age >= MaxMinutes)
+        {
+         ENUM_POSITION_TYPE t=pos.PositionType();
+         CloseDir(t,StringFormat("TIMEOUT %dmin dir=%s",age,t==POSITION_TYPE_BUY?"BUY":"SELL"));
+         return;
+        }
      }
   }
 
@@ -170,8 +175,15 @@ void DoBreakeven()
 void DoBasketTP()
   {
    if(Open()==0) return;
-   double avg=AvgPrice(), ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK), bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
-   if((g_buy&&(bid-avg)>=BasketTP)||(g_sell&&(avg-ask)>=BasketTP)) CloseAll("BASKET TP");
+   double ask=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   double bid=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+   // Ferme chaque direction indépendamment
+   if(g_buy)
+     { double avg=AvgDir(POSITION_TYPE_BUY);
+       if(avg>0 && (bid-avg)>=BasketTP) CloseDir(POSITION_TYPE_BUY,"BASKET TP BUY"); }
+   if(g_sell)
+     { double avg=AvgDir(POSITION_TYPE_SELL);
+       if(avg>0 && (avg-ask)>=BasketTP) CloseDir(POSITION_TYPE_SELL,"BASKET TP SELL"); }
   }
 
 //──────────────────────────────────────────────────────────────────
@@ -213,6 +225,23 @@ void CloseAll(string why)
          trade.PositionClose(pos.Ticket());
    g_buy=false; g_sell=false;
   }
+
+void CloseDir(ENUM_POSITION_TYPE t, string why)
+  {
+   Print("[EA] ",why);
+   for(int i=PositionsTotal()-1;i>=0;i--)
+      if(pos.SelectByIndex(i)&&pos.Symbol()==_Symbol&&pos.Magic()==MagicNumber&&pos.PositionType()==t)
+         trade.PositionClose(pos.Ticket());
+   if(t==POSITION_TYPE_BUY)  g_buy=false;
+   if(t==POSITION_TYPE_SELL) g_sell=false;
+  }
+
+double AvgDir(ENUM_POSITION_TYPE t)
+  { double w=0,v=0;
+    for(int i=PositionsTotal()-1;i>=0;i--)
+      if(pos.SelectByIndex(i)&&pos.Symbol()==_Symbol&&pos.Magic()==MagicNumber&&pos.PositionType()==t)
+        { w+=pos.PriceOpen()*pos.Volume(); v+=pos.Volume(); }
+    return v>0?w/v:0; }
 
 int Dir(ENUM_POSITION_TYPE t)
   { int c=0; for(int i=PositionsTotal()-1;i>=0;i--)
