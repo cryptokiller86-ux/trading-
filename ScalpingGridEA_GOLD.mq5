@@ -1,563 +1,560 @@
 //+------------------------------------------------------------------+
 //|  ScalpingGridEA_GOLD.mq5                                         |
-//|  Grid Scalping EA — XAUUSD Optimized                             |
-//|  Compatible: MT5                                                 |
+//|  Gold Scalping Grid EA — XAUUSD Optimized v3.0                   |
+//|  Timeframe: M5  |  Symbol: XAUUSD                                |
 //|                                                                  |
-//|  GOLD specifics:                                                 |
-//|   - _Point = 0.01  (1 pip = $1 = 100 points)                    |
-//|   - Typical daily range: $15-40 (1500-4000 pts)                 |
-//|   - Higher spread: 20-50 pts normal                              |
-//|   - ATR-dynamic grid spacing                                     |
-//|   - H4 trend filter to avoid counter-trend grids                 |
-//|   - Volatility spike guard (no entry when ATR > threshold)       |
+//|  Strategy (research-backed consensus):                           |
+//|   1. EMA 200 H1      → macro trend bias (long/short only)        |
+//|   2. EMA 9/21 M5     → crossover entry trigger                   |
+//|   3. RSI 7 M5        → momentum extreme confirmation             |
+//|   4. Stochastic(5,3,3) M5 → fast overbought/oversold signal      |
+//|   5. Bollinger Bands(20,2) M5 → price at band = high-prob entry  |
+//|   6. ATR M5          → dynamic grid step + volatility guard       |
+//|   7. London/NY overlap sessions only (13-17 UTC peak liquidity)  |
+//|                                                                  |
+//|  Designed for $300 micro accounts (0.01 lot base)                |
 //+------------------------------------------------------------------+
-#property copyright "ScalpingGridEA_GOLD"
-#property version   "1.00"
+#property copyright "ScalpingGridEA_GOLD v3"
+#property version   "3.00"
 #property strict
 
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
-#include <Trade\OrderInfo.mqh>
 
 CTrade        trade;
-CPositionInfo posInfo;
-COrderInfo    orderInfo;
+CPositionInfo pos;
 
-//--- Inputs: Grid
-input group "=== GRID SETTINGS ==="
-input double  GridStep_Dollar   = 2.0;   // Grid step in USD (ex: 2.0 = $2)
-input bool    UseATRGrid        = true;  // Dynamic grid step (ATR-based)
-input double  ATRGridMultiplier = 0.30;  // ATR multiplier for grid step
-input int     MaxGridLevels     = 6;     // Max grid levels
-input double  LotStart          = 0.01;  // Starting lot size
-input double  LotMultiplier     = 1.6;   // Lot multiplier per level
-input bool    UseAntiMartingale = false; // Anti-martingale mode
+//──────────────────────────────────────────────────────────────────
+//  INPUT PARAMETERS
+//──────────────────────────────────────────────────────────────────
 
-//--- Inputs: Indicators
 input group "=== INDICATORS ==="
-input int     FastMA_Period     = 8;     // Fast EMA (M5)
-input int     SlowMA_Period     = 21;    // Slow EMA (M5)
-input int     TrendMA_Period    = 50;    // Trend EMA (H4 — direction filter)
-input int     RSI_Period        = 14;    // RSI period
-input double  RSI_OB            = 65.0;  // RSI overbought (gold: less strict)
-input double  RSI_OS            = 35.0;  // RSI oversold   (gold: less strict)
-input int     ATR_Period        = 14;    // ATR period (M5)
-input double  ATR_MaxMultiplier = 2.5;   // Max ATR x avg = no entry (news guard)
+input int    EMA_Fast          = 9;      // Fast EMA period (M5)
+input int    EMA_Slow          = 21;     // Slow EMA period (M5)
+input int    EMA_Trend         = 200;    // Trend EMA period (H1)
+input int    RSI_Period        = 7;      // RSI period (7 = fast for gold)
+input double RSI_Buy           = 40.0;   // RSI below = bullish momentum
+input double RSI_Sell          = 60.0;   // RSI above = bearish momentum
+input int    Stoch_K           = 5;      // Stochastic %K (5 = fast)
+input int    Stoch_D           = 3;      // Stochastic %D
+input int    Stoch_Slowing     = 3;      // Stochastic slowing
+input double Stoch_Buy         = 35.0;   // Stoch below = oversold
+input double Stoch_Sell        = 65.0;   // Stoch above = overbought
+input int    BB_Period         = 20;     // Bollinger Bands period
+input double BB_Deviation      = 2.0;    // Bollinger Bands deviation
+input double BB_EntryPct       = 0.85;   // Price must be at 85% of band width
+input int    ATR_Period        = 14;     // ATR period
 
-//--- Inputs: TP/SL  (in USD, converted to points internally)
+input group "=== GRID SETTINGS ==="
+input bool   UseATRGrid        = true;   // Dynamic grid step (ATR-based)
+input double ATR_GridMult      = 0.25;   // ATR multiplier for grid step
+input double GridStep_USD      = 1.50;   // Fixed grid step in $ (if !UseATRGrid)
+input int    MaxGridLevels     = 4;      // Max grid levels (4 = safe for $300)
+input double LotBase           = 0.01;   // Base lot (minimum = 0.01)
+input double LotMultiplier     = 1.3;    // Lot multiplier per grid level
+input bool   UseAntiMart       = false;  // Anti-martingale (divide instead)
+
 input group "=== TAKE PROFIT / STOP LOSS (USD) ==="
-input double  TP_Dollar         = 3.0;   // TP per level ($)
-input double  BasketTP_Dollar   = 10.0;  // Grid basket TP ($) — closes all
-input double  SL_Dollar         = 20.0;  // Emergency SL per position ($)
-input bool    UseTrailingStop   = true;  // Trailing stop
-input double  TrailStart_Dollar = 2.5;   // Trail starts after ($)
-input double  TrailStep_Dollar  = 1.0;   // Trail step ($)
+input double TP_USD            = 2.50;   // TP per position ($)
+input double BasketTP_USD      = 6.00;   // Close all when total basket profit ($)
+input double SL_USD            = 8.00;   // Emergency SL per position ($)
+input bool   UseTrailing       = true;   // Trailing stop
+input double Trail_Start_USD   = 1.50;   // Trail activates after ($) in profit
+input double Trail_Step_USD    = 0.80;   // Trail step ($)
+input bool   UseEndOfDayClose  = true;   // Close all before end of NY session
+input int    EOD_CloseHour     = 21;     // Close all at this UTC hour
 
-//--- Inputs: Risk
 input group "=== RISK MANAGEMENT ==="
-input double  MaxDrawdownPct    = 12.0;  // Max drawdown % (closes all)
-input bool    UseAutoLot        = false; // Auto lot (risk % per trade)
-input double  RiskPercent       = 1.0;   // Risk % of balance per trade
-input double  MaxSpread_Dollar  = 0.50;  // Max spread in $ (50 pts = $0.50)
-input int     MagicNumber       = 99471; // Magic number (GOLD EA)
-input int     MaxPositions      = 12;    // Hard cap total open positions
+input double MaxDD_Pct         = 15.0;   // Max drawdown % → close all
+input double MaxSpread_USD     = 0.40;   // Max spread in $ (40 pts)
+input double ATR_SpikeRatio    = 2.2;    // Skip entry if ATR > ratio * ATR_H1
+input int    MaxTotalPositions = 8;      // Hard cap open positions
+input int    MagicNumber       = 30047;  // EA magic number
 
-//--- Inputs: Sessions (UTC)
-input group "=== SESSION FILTER ==="
-input bool    UseSessions       = true;  // Enable session filter
-input int     AsiaOpen          = 1;     // Tokyo open (UTC)
-input int     AsiaClose         = 7;     // Tokyo close (UTC)
-input int     LondonOpen        = 8;     // London open (UTC)
-input int     LondonClose       = 17;    // London close (UTC)
-input int     NYOpen            = 13;    // NY open (UTC)
-input int     NYClose           = 22;    // NY close (UTC)
-input bool    TradeAsia         = false; // Include Asian session (lower vol)
+input group "=== SESSIONS (UTC) ==="
+input bool   UseSessions       = true;   // Session filter
+input int    London_Open       = 8;      // London open
+input int    London_Close      = 17;     // London close
+input int    NY_Open           = 13;     // New York open
+input int    NY_Close          = 22;     // New York close
+input bool   TradeAsia         = false;  // Asian session (quieter gold)
+input int    Asia_Open         = 1;
+input int    Asia_Close        = 7;
 
-//--- Inputs: Display
 input group "=== DISPLAY ==="
-input bool    ShowDashboard     = true;  // Show live dashboard
+input bool   Dashboard         = true;   // Show live panel
 
-//--- Globals
-double  g_point;
-int     g_digits;
-double  g_gridBase    = 0.0;
-bool    g_gridBuy     = false;
-bool    g_gridSell    = false;
+//──────────────────────────────────────────────────────────────────
+//  GLOBALS
+//──────────────────────────────────────────────────────────────────
+double g_pt;
+int    g_digits;
+bool   g_gridBuy  = false;
+bool   g_gridSell = false;
+double g_gridBase = 0.0;
 
-int     g_fastMA_h;
-int     g_slowMA_h;
-int     g_trendMA_h;   // H4 EMA
-int     g_rsi_h;
-int     g_atr_h;
-int     g_atrAvg_h;    // ATR on H1 to compute average (news guard)
+int h_emaFast, h_emaSlow, h_emaTrend;
+int h_rsi, h_stochK, h_stochD;
+int h_bb_upper, h_bb_lower, h_bb_mid;
+int h_atr, h_atrH1;
+int h_bb;
 
-double  g_startBalance;
-int     g_totalTrades = 0;
-int     g_totalWins   = 0;
-double  g_totalProfit = 0.0;
-double  g_maxDrawdown = 0.0;
-double  g_peakEquity  = 0.0;
+double  g_startBal;
+int     g_trades    = 0;
+int     g_wins      = 0;
+double  g_profit    = 0.0;
+double  g_maxDD     = 0.0;
+double  g_peakEq    = 0.0;
+datetime g_lastBar  = 0;   // bar-open signal filter
 
-//+------------------------------------------------------------------+
+//──────────────────────────────────────────────────────────────────
 int OnInit()
   {
-   //--- Symbol guard: only XAUUSD or XAU*
-   string sym = _Symbol;
-   if(StringFind(sym, "XAU") < 0 && StringFind(sym, "GOLD") < 0)
+   string s = _Symbol;
+   if(StringFind(s,"XAU") < 0 && StringFind(s,"GOLD") < 0)
      {
-      MessageBox("This EA is designed for XAUUSD (GOLD) only.\nCurrent symbol: " + sym,
-                 "Wrong Symbol", MB_ICONERROR);
+      Alert("EA is for XAUUSD only. Current: ", s);
       return INIT_FAILED;
      }
+   if(Period() != PERIOD_M5)
+      Print("WARNING: EA is optimized for M5. Current TF may give suboptimal results.");
 
    trade.SetExpertMagicNumber(MagicNumber);
-   trade.SetDeviationInPoints(30);  // Gold needs more slippage tolerance
+   trade.SetDeviationInPoints(30);
    trade.SetTypeFilling(ORDER_FILLING_IOC);
 
-   g_point  = _Point;   // 0.01 for XAUUSD
-   g_digits = _Digits;  // 2 for XAUUSD
+   g_pt     = _Point;
+   g_digits = _Digits;
 
-   g_fastMA_h  = iMA(_Symbol, PERIOD_M5,  FastMA_Period,  0, MODE_EMA, PRICE_CLOSE);
-   g_slowMA_h  = iMA(_Symbol, PERIOD_M5,  SlowMA_Period,  0, MODE_EMA, PRICE_CLOSE);
-   g_trendMA_h = iMA(_Symbol, PERIOD_H4,  TrendMA_Period, 0, MODE_EMA, PRICE_CLOSE);
-   g_rsi_h     = iRSI(_Symbol, PERIOD_M5, RSI_Period, PRICE_CLOSE);
-   g_atr_h     = iATR(_Symbol, PERIOD_M5, ATR_Period);
-   g_atrAvg_h  = iATR(_Symbol, PERIOD_H1, ATR_Period);  // broader volatility context
+   //--- Indicator handles
+   h_emaFast  = iMA(_Symbol, PERIOD_M5, EMA_Fast,  0, MODE_EMA, PRICE_CLOSE);
+   h_emaSlow  = iMA(_Symbol, PERIOD_M5, EMA_Slow,  0, MODE_EMA, PRICE_CLOSE);
+   h_emaTrend = iMA(_Symbol, PERIOD_H1, EMA_Trend, 0, MODE_EMA, PRICE_CLOSE);
+   h_rsi      = iRSI(_Symbol, PERIOD_M5, RSI_Period, PRICE_CLOSE);
+   h_bb       = iBands(_Symbol, PERIOD_M5, BB_Period, 0, BB_Deviation, PRICE_CLOSE);
+   h_atr      = iATR(_Symbol, PERIOD_M5, ATR_Period);
+   h_atrH1    = iATR(_Symbol, PERIOD_H1, ATR_Period);
 
-   if(g_fastMA_h  == INVALID_HANDLE || g_slowMA_h == INVALID_HANDLE ||
-      g_trendMA_h == INVALID_HANDLE || g_rsi_h    == INVALID_HANDLE ||
-      g_atr_h     == INVALID_HANDLE || g_atrAvg_h == INVALID_HANDLE)
+   //--- Stochastic: buffer 0 = %K, buffer 1 = %D
+   h_stochK   = iStochastic(_Symbol, PERIOD_M5, Stoch_K, Stoch_D, Stoch_Slowing,
+                              MODE_SMA, STO_LOWHIGH);
+
+   if(h_emaFast == INVALID_HANDLE || h_emaSlow  == INVALID_HANDLE ||
+      h_emaTrend== INVALID_HANDLE || h_rsi      == INVALID_HANDLE ||
+      h_bb      == INVALID_HANDLE || h_atr      == INVALID_HANDLE ||
+      h_atrH1   == INVALID_HANDLE || h_stochK   == INVALID_HANDLE)
      {
-      Print("ERROR: indicator handle creation failed.");
+      Print("FATAL: indicator handle error");
       return INIT_FAILED;
      }
 
-   g_startBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-   g_peakEquity   = g_startBalance;
+   g_startBal = AccountInfoDouble(ACCOUNT_BALANCE);
+   g_peakEq   = g_startBal;
 
-   Print("ScalpingGridEA_GOLD ready | Balance: ", g_startBalance,
-         " | Symbol: ", _Symbol);
+   Print("GOLD Grid EA v3 | Balance: ", g_startBal,
+         " ", AccountInfoString(ACCOUNT_CURRENCY));
    return INIT_SUCCEEDED;
   }
 
-//+------------------------------------------------------------------+
+//──────────────────────────────────────────────────────────────────
 void OnDeinit(const int reason)
   {
-   IndicatorRelease(g_fastMA_h);
-   IndicatorRelease(g_slowMA_h);
-   IndicatorRelease(g_trendMA_h);
-   IndicatorRelease(g_rsi_h);
-   IndicatorRelease(g_atr_h);
-   IndicatorRelease(g_atrAvg_h);
+   IndicatorRelease(h_emaFast); IndicatorRelease(h_emaSlow);
+   IndicatorRelease(h_emaTrend);IndicatorRelease(h_rsi);
+   IndicatorRelease(h_bb);      IndicatorRelease(h_atr);
+   IndicatorRelease(h_atrH1);   IndicatorRelease(h_stochK);
    Comment("");
   }
 
-//+------------------------------------------------------------------+
+//──────────────────────────────────────────────────────────────────
 void OnTick()
   {
    double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double ddPct   = (g_peakEquity > 0.0) ? (g_peakEquity - equity) / g_peakEquity * 100.0 : 0.0;
-
-   if(equity > g_peakEquity) g_peakEquity = equity;
-   if(ddPct  > g_maxDrawdown) g_maxDrawdown = ddPct;
+   double ddPct   = (g_peakEq > 0.0) ? (g_peakEq - equity) / g_peakEq * 100.0 : 0.0;
+   if(equity > g_peakEq) g_peakEq = equity;
+   if(ddPct  > g_maxDD)  g_maxDD  = ddPct;
 
    //--- Hard drawdown cut
-   if(ddPct >= MaxDrawdownPct)
+   if(ddPct >= MaxDD_Pct)
      {
-      CloseAllPositions("MAX DRAWDOWN");
+      CloseAll("MAX DRAWDOWN");
       return;
      }
 
-   //--- Max positions guard
-   int totalPos = CountAllPositions();
-   if(totalPos >= MaxPositions) return;
+   //--- End-of-day close
+   if(UseEndOfDayClose)
+     {
+      MqlDateTime dt;
+      TimeToStruct(TimeGMT(), dt);
+      if(dt.hour >= EOD_CloseHour)
+        {
+         if(CountAll() > 0) CloseAll("END OF DAY");
+         return;
+        }
+     }
 
-   //--- Spread check (in dollar terms)
-   double spreadPts = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
-   double spreadDollar = spreadPts * g_point;  // each point = $0.01 for XAUUSD
-   if(spreadDollar > MaxSpread_Dollar)
-      return;
+   //--- Trailing stop (runs every tick)
+   if(UseTrailing) ManageTrail();
 
-   //--- Session filter
-   if(UseSessions && !IsInSession())
-      return;
-
-   //--- Read indicators
-   double fastMA[3], slowMA[3], trendMA[3], rsiVal[3], atr[3], atrH1[3];
-   if(CopyBuffer(g_fastMA_h,  0, 0, 3, fastMA)  < 3) return;
-   if(CopyBuffer(g_slowMA_h,  0, 0, 3, slowMA)  < 3) return;
-   if(CopyBuffer(g_trendMA_h, 0, 0, 3, trendMA) < 3) return;
-   if(CopyBuffer(g_rsi_h,     0, 0, 3, rsiVal)  < 3) return;
-   if(CopyBuffer(g_atr_h,     0, 0, 3, atr)     < 3) return;
-   if(CopyBuffer(g_atrAvg_h,  0, 0, 3, atrH1)   < 3) return;
-
-   double ask      = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double bid      = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double midPrice = (ask + bid) / 2.0;
-
-   //--- Volatility spike guard: if current ATR >> H1 ATR average, skip (news/spike)
-   double atrRatio = (atrH1[0] > 0.0) ? (atr[0] * 12.0) / atrH1[0] : 1.0;
-   if(atrRatio > ATR_MaxMultiplier)
-      return;
-
-   //--- Dynamic grid step based on ATR
-   double gridStepDollar = UseATRGrid
-                           ? atr[0] * ATRGridMultiplier * 100.0   // ATR in points * mult -> $
-                           : GridStep_Dollar;
-   gridStepDollar = MathMax(gridStepDollar, 0.50);  // minimum $0.50 grid step
-
-   //--- Trend direction from H4
-   bool h4Bull = midPrice > trendMA[0];
-   bool h4Bear = midPrice < trendMA[0];
-
-   //--- M5 signal
-   bool m5Bull = fastMA[0] > slowMA[0] && fastMA[1] <= slowMA[1]; // fresh cross up
-   bool m5Bear = fastMA[0] < slowMA[0] && fastMA[1] >= slowMA[1]; // fresh cross down
-
-   //--- RSI confirmation
-   bool rsiBuy  = rsiVal[0] < RSI_OS;
-   bool rsiSell = rsiVal[0] > RSI_OB;
-
-   int buyCount  = CountPositions(POSITION_TYPE_BUY);
-   int sellCount = CountPositions(POSITION_TYPE_SELL);
-
-   //--- Trailing stop
-   if(UseTrailingStop)
-      ManageTrailingStop();
-
-   //--- Basket TP
+   //--- Basket TP (runs every tick)
    CheckBasketTP();
 
-   //--- ─── ENTRY ────────────────────────────────────────────────
-   //  Only open first level if:
-   //    • H4 trend aligned
-   //    • M5 EMA crossover (fresh signal) OR RSI at extreme
-   //    • No existing grid in same direction
-   // ──────────────────────────────────────────────────────────────
+   //--- Everything below: once per new bar only
+   datetime barTime = iTime(_Symbol, PERIOD_M5, 0);
+   if(barTime == g_lastBar) goto _dashboard;
+   g_lastBar = barTime;
 
-   bool canBuy  = h4Bull && (m5Bull || rsiBuy)  && buyCount  == 0 && sellCount == 0;
-   bool canSell = h4Bear && (m5Bear || rsiSell) && sellCount == 0 && buyCount  == 0;
+   //--- Spread guard
+   double spreadUSD = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * g_pt;
+   if(spreadUSD > MaxSpread_USD) goto _dashboard;
 
-   if(canBuy)
-     {
-      double lot = CalculateLot(0);
-      if(OpenPosition(ORDER_TYPE_BUY, lot))
+   //--- Session guard
+   if(UseSessions && !InSession()) goto _dashboard;
+
+   //--- Max positions guard
+   if(CountAll() >= MaxTotalPositions) goto _dashboard;
+
+   //--- Read all indicators (bar [0] = current closed bar for signals)
+   {
+      double emaF[3], emaS[3], emaT[3];
+      double rsi[3], stochK[3], stochD[3];
+      double bbU[3], bbL[3], bbM[3];
+      double atrM5[3], atrH1[3];
+
+      if(CopyBuffer(h_emaFast,  0,1,3,emaF)   < 3) goto _dashboard;
+      if(CopyBuffer(h_emaSlow,  0,1,3,emaS)   < 3) goto _dashboard;
+      if(CopyBuffer(h_emaTrend, 0,1,3,emaT)   < 3) goto _dashboard;
+      if(CopyBuffer(h_rsi,      0,1,3,rsi)    < 3) goto _dashboard;
+      if(CopyBuffer(h_stochK,   0,1,3,stochK) < 3) goto _dashboard;
+      if(CopyBuffer(h_stochK,   1,1,3,stochD) < 3) goto _dashboard;
+      if(CopyBuffer(h_bb,       1,1,3,bbU)    < 3) goto _dashboard; // upper
+      if(CopyBuffer(h_bb,       2,1,3,bbL)    < 3) goto _dashboard; // lower
+      if(CopyBuffer(h_bb,       0,1,3,bbM)    < 3) goto _dashboard; // middle
+      if(CopyBuffer(h_atr,      0,1,3,atrM5)  < 3) goto _dashboard;
+      if(CopyBuffer(h_atrH1,    0,1,3,atrH1)  < 3) goto _dashboard;
+
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double mid = (ask + bid) / 2.0;
+
+      //--- Volatility spike guard
+      double atrRatio = (atrH1[0] > 0.0) ? (atrM5[0] * 12.0) / atrH1[0] : 1.0;
+      if(atrRatio > ATR_SpikeRatio) goto _dashboard;
+
+      //--- Dynamic grid step
+      double gridStep = UseATRGrid
+                        ? MathMax(atrM5[0] * ATR_GridMult * 100.0, 0.80)
+                        : GridStep_USD;
+
+      //═══════════════════════════════════════════════════════
+      //  SIGNAL LOGIC — 5-condition confluence
+      //═══════════════════════════════════════════════════════
+
+      // 1. H1 trend direction
+      bool h1Bull = mid > emaT[0];
+      bool h1Bear = mid < emaT[0];
+
+      // 2. M5 EMA crossover (fresh: prev bar[1] not crossed, bar[0] crossed)
+      bool crossUp   = (emaF[0] > emaS[0]) && (emaF[1] <= emaS[1]);
+      bool crossDown = (emaF[0] < emaS[0]) && (emaF[1] >= emaS[1]);
+
+      // 3. RSI momentum (bar[0])
+      bool rsiBull = rsi[0] < RSI_Buy;
+      bool rsiBear = rsi[0] > RSI_Sell;
+
+      // 4. Stochastic (5,3,3) — %K cross above %D in oversold / below in overbought
+      bool stochCrossUp   = (stochK[0] > stochD[0]) && (stochK[1] <= stochD[1])
+                            && stochK[0] < Stoch_Buy;
+      bool stochCrossDown = (stochK[0] < stochD[0]) && (stochK[1] >= stochD[1])
+                            && stochK[0] > Stoch_Sell;
+
+      // 5. Bollinger Band — price near lower band for BUY, upper for SELL
+      double bbRange  = bbU[0] - bbL[0];
+      bool   atLowBB  = (bbRange > 0.0) && (ask - bbL[0]) / bbRange < (1.0 - BB_EntryPct);
+      bool   atHighBB = (bbRange > 0.0) && (bbU[0] - bid) / bbRange < (1.0 - BB_EntryPct);
+
+      int buyCount  = CountDir(POSITION_TYPE_BUY);
+      int sellCount = CountDir(POSITION_TYPE_SELL);
+
+      //--- Entry: all 5 conditions + no opposite grid open
+      bool buySignal  = h1Bull && (crossUp  || stochCrossUp)
+                        && rsiBull && atLowBB
+                        && buyCount == 0 && sellCount == 0;
+
+      bool sellSignal = h1Bear && (crossDown || stochCrossDown)
+                        && rsiBear && atHighBB
+                        && sellCount == 0 && buyCount == 0;
+
+      //--- Open first level
+      if(buySignal)
         {
-         g_gridBase = ask;
-         g_gridBuy  = true;
-         g_gridSell = false;
+         double lot = CalcLot(0);
+         if(OpenPos(ORDER_TYPE_BUY, lot))
+           { g_gridBuy = true; g_gridSell = false; g_gridBase = ask; }
         }
-     }
-   else if(canSell)
-     {
-      double lot = CalculateLot(0);
-      if(OpenPosition(ORDER_TYPE_SELL, lot))
+      else if(sellSignal)
         {
-         g_gridBase = bid;
-         g_gridBuy  = false;
-         g_gridSell = true;
+         double lot = CalcLot(0);
+         if(OpenPos(ORDER_TYPE_SELL, lot))
+           { g_gridSell = true; g_gridBuy = false; g_gridBase = bid; }
         }
-     }
 
-   //--- ─── GRID LEVELS ──────────────────────────────────────────
-   if(g_gridBuy && buyCount > 0 && buyCount < MaxGridLevels)
-     {
-      double lastPrice = GetLastOpenPrice(POSITION_TYPE_BUY);
-      if(lastPrice > 0.0 && (lastPrice - ask) >= gridStepDollar)
+      //--- Grid: add BUY levels
+      if(g_gridBuy && buyCount > 0 && buyCount < MaxGridLevels)
         {
-         double lot = CalculateLot(buyCount);
-         OpenPosition(ORDER_TYPE_BUY, lot);
+         double lastP = LastOpenPrice(POSITION_TYPE_BUY);
+         if(lastP > 0.0 && (lastP - ask) >= gridStep)
+           {
+            double lot = CalcLot(buyCount);
+            OpenPos(ORDER_TYPE_BUY, lot);
+           }
         }
-     }
 
-   if(g_gridSell && sellCount > 0 && sellCount < MaxGridLevels)
-     {
-      double lastPrice = GetLastOpenPrice(POSITION_TYPE_SELL);
-      if(lastPrice > 0.0 && (bid - lastPrice) >= gridStepDollar)
+      //--- Grid: add SELL levels
+      if(g_gridSell && sellCount > 0 && sellCount < MaxGridLevels)
         {
-         double lot = CalculateLot(sellCount);
-         OpenPosition(ORDER_TYPE_SELL, lot);
+         double lastP = LastOpenPrice(POSITION_TYPE_SELL);
+         if(lastP > 0.0 && (bid - lastP) >= gridStep)
+           {
+            double lot = CalcLot(sellCount);
+            OpenPos(ORDER_TYPE_SELL, lot);
+           }
         }
-     }
 
-   //--- Dashboard
-   if(ShowDashboard)
-      DrawDashboard(equity, balance, ddPct, buyCount, sellCount,
-                    rsiVal[0], atr[0], gridStepDollar, atrRatio);
+      //--- Dashboard data capture
+      if(Dashboard)
+         DrawPanel(equity, balance, ddPct, buyCount, sellCount,
+                   rsi[0], atrM5[0], stochK[0], gridStep, atrRatio,
+                   h1Bull, h1Bear);
+      return;
+   }
+
+   _dashboard:
+   if(Dashboard)
+     {
+      double eq2 = AccountInfoDouble(ACCOUNT_EQUITY);
+      double ba2 = AccountInfoDouble(ACCOUNT_BALANCE);
+      double dd2 = (g_peakEq > 0.0) ? (g_peakEq - eq2) / g_peakEq * 100.0 : 0.0;
+      DrawPanel(eq2, ba2, dd2,
+                CountDir(POSITION_TYPE_BUY), CountDir(POSITION_TYPE_SELL),
+                0, 0, 0, 0, 0, false, false);
+     }
   }
 
-//+------------------------------------------------------------------+
-bool OpenPosition(ENUM_ORDER_TYPE type, double lot)
+//──────────────────────────────────────────────────────────────────
+bool OpenPos(ENUM_ORDER_TYPE type, double lot)
   {
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
-   //--- Convert $ values to points
-   double tpPts = TP_Dollar / g_point;
-   double slPts = SL_Dollar / g_point;
-
+   double tpPts = TP_USD / g_pt;
+   double slPts = SL_USD / g_pt;
    double tp, sl;
 
    if(type == ORDER_TYPE_BUY)
      {
-      tp = NormalizeDouble(ask + tpPts * g_point, g_digits);
-      sl = NormalizeDouble(ask - slPts * g_point, g_digits);
+      tp = NormalizeDouble(ask + tpPts * g_pt, g_digits);
+      sl = NormalizeDouble(ask - slPts * g_pt, g_digits);
       if(trade.Buy(lot, _Symbol, ask, sl, tp))
-        {
-         g_totalTrades++;
-         return true;
-        }
+        { g_trades++; return true; }
       Print("BUY failed: ", trade.ResultRetcodeDescription());
      }
-   else if(type == ORDER_TYPE_SELL)
+   else
      {
-      tp = NormalizeDouble(bid - tpPts * g_point, g_digits);
-      sl = NormalizeDouble(bid + slPts * g_point, g_digits);
+      tp = NormalizeDouble(bid - tpPts * g_pt, g_digits);
+      sl = NormalizeDouble(bid + slPts * g_pt, g_digits);
       if(trade.Sell(lot, _Symbol, bid, sl, tp))
-        {
-         g_totalTrades++;
-         return true;
-        }
+        { g_trades++; return true; }
       Print("SELL failed: ", trade.ResultRetcodeDescription());
      }
    return false;
   }
 
-//+------------------------------------------------------------------+
-double CalculateLot(int level)
+//──────────────────────────────────────────────────────────────────
+double CalcLot(int level)
   {
-   double lot;
-
-   if(UseAutoLot)
-     {
-      double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
-      double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-      double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-      double slValue   = (SL_Dollar / g_point) * g_point / tickSize * tickValue;
-      lot = (balance * RiskPercent / 100.0) / MathMax(slValue, 0.01);
-     }
+   double lot = LotBase;
+   if(UseAntiMart)
+      for(int i = 0; i < level; i++) lot = MathMax(lot / LotMultiplier, 0.001);
    else
-     {
-      lot = LotStart;
-      if(UseAntiMartingale)
-         for(int i = 0; i < level; i++) lot = MathMax(lot / LotMultiplier, 0.001);
-      else
-         for(int i = 0; i < level; i++) lot *= LotMultiplier;
-     }
+      for(int i = 0; i < level; i++) lot *= LotMultiplier;
 
-   double minLot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   double maxLot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-   double stepLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-
-   lot = MathMax(lot, minLot);
-   lot = MathMin(lot, maxLot);
-   lot = MathFloor(lot / stepLot) * stepLot;
-
+   double minL = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxL = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   lot = MathMax(lot, minL);
+   lot = MathMin(lot, maxL);
+   lot = MathFloor(lot / step) * step;
    return NormalizeDouble(lot, 2);
   }
 
-//+------------------------------------------------------------------+
+//──────────────────────────────────────────────────────────────────
 void CheckBasketTP()
   {
-   int totalPos = 0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   double totalP = 0.0;
+   int    cnt    = 0;
+   for(int i = PositionsTotal()-1; i >= 0; i--)
      {
-      if(posInfo.SelectByIndex(i) &&
-         posInfo.Symbol() == _Symbol && posInfo.Magic() == MagicNumber)
-         totalPos++;
+      if(pos.SelectByIndex(i) && pos.Symbol()==_Symbol && pos.Magic()==MagicNumber)
+        { totalP += pos.Profit() + pos.Swap() + pos.Commission(); cnt++; }
      }
-   if(totalPos == 0) return;
+   if(cnt == 0) return;
 
-   double avgOpen = GetAverageOpenPrice();
+   double avgOpen = AvgOpenPrice();
    double ask     = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid     = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-   bool buyHit  = g_gridBuy  && (bid - avgOpen) >= BasketTP_Dollar;
-   bool sellHit = g_gridSell && (avgOpen - ask)  >= BasketTP_Dollar;
+   bool buyTP  = g_gridBuy  && (bid - avgOpen) >= BasketTP_USD;
+   bool sellTP = g_gridSell && (avgOpen - ask)  >= BasketTP_USD;
 
-   if(buyHit || sellHit)
-      CloseAllPositions("BASKET TP");
+   if(buyTP || sellTP) CloseAll("BASKET TP");
   }
 
-//+------------------------------------------------------------------+
-void ManageTrailingStop()
+//──────────────────────────────────────────────────────────────────
+void ManageTrail()
   {
-   double trailStartPts = TrailStart_Dollar / g_point;
-   double trailStepPts  = TrailStep_Dollar  / g_point;
+   double startPts = Trail_Start_USD / g_pt;
+   double stepPts  = Trail_Step_USD  / g_pt;
 
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   for(int i = PositionsTotal()-1; i >= 0; i--)
      {
-      if(!posInfo.SelectByIndex(i)) continue;
-      if(posInfo.Symbol() != _Symbol || posInfo.Magic() != MagicNumber) continue;
+      if(!pos.SelectByIndex(i)) continue;
+      if(pos.Symbol() != _Symbol || pos.Magic() != MagicNumber) continue;
 
-      double openPrice = posInfo.PriceOpen();
-      double sl        = posInfo.StopLoss();
-      double ask       = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      double bid       = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double open = pos.PriceOpen();
+      double sl   = pos.StopLoss();
+      double ask  = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double bid  = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-      if(posInfo.PositionType() == POSITION_TYPE_BUY)
+      if(pos.PositionType() == POSITION_TYPE_BUY)
         {
-         if((bid - openPrice) >= trailStartPts * g_point)
+         if((bid - open) >= startPts * g_pt)
            {
-            double newSL = NormalizeDouble(bid - trailStepPts * g_point, g_digits);
-            if(sl == 0.0 || newSL > sl + trailStepPts * g_point)
-               trade.PositionModify(posInfo.Ticket(), newSL, posInfo.TakeProfit());
+            double nsl = NormalizeDouble(bid - stepPts * g_pt, g_digits);
+            if(sl == 0.0 || nsl > sl + stepPts * g_pt)
+               trade.PositionModify(pos.Ticket(), nsl, pos.TakeProfit());
            }
         }
       else
         {
-         if((openPrice - ask) >= trailStartPts * g_point)
+         if((open - ask) >= startPts * g_pt)
            {
-            double newSL = NormalizeDouble(ask + trailStepPts * g_point, g_digits);
-            if(sl == 0.0 || newSL < sl - trailStepPts * g_point)
-               trade.PositionModify(posInfo.Ticket(), newSL, posInfo.TakeProfit());
+            double nsl = NormalizeDouble(ask + stepPts * g_pt, g_digits);
+            if(sl == 0.0 || nsl < sl - stepPts * g_pt)
+               trade.PositionModify(pos.Ticket(), nsl, pos.TakeProfit());
            }
         }
      }
   }
 
-//+------------------------------------------------------------------+
-void CloseAllPositions(string reason)
+//──────────────────────────────────────────────────────────────────
+void CloseAll(string reason)
   {
-   Print("[GOLD EA] CloseAll -> ", reason);
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   Print("[GOLD EA] CloseAll: ", reason);
+   for(int i = PositionsTotal()-1; i >= 0; i--)
      {
-      if(posInfo.SelectByIndex(i) &&
-         posInfo.Symbol() == _Symbol && posInfo.Magic() == MagicNumber)
-         trade.PositionClose(posInfo.Ticket());
+      if(pos.SelectByIndex(i) && pos.Symbol()==_Symbol && pos.Magic()==MagicNumber)
+         trade.PositionClose(pos.Ticket());
      }
-   g_gridBuy  = false;
-   g_gridSell = false;
-   g_gridBase = 0.0;
+   g_gridBuy = false; g_gridSell = false; g_gridBase = 0.0;
   }
 
-//+------------------------------------------------------------------+
-int CountPositions(ENUM_POSITION_TYPE type)
+//──────────────────────────────────────────────────────────────────
+int CountDir(ENUM_POSITION_TYPE t)
   {
-   int count = 0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-     {
-      if(posInfo.SelectByIndex(i) &&
-         posInfo.Symbol() == _Symbol && posInfo.Magic() == MagicNumber &&
-         posInfo.PositionType() == type)
-         count++;
-     }
-   return count;
+   int c = 0;
+   for(int i = PositionsTotal()-1; i >= 0; i--)
+      if(pos.SelectByIndex(i) && pos.Symbol()==_Symbol &&
+         pos.Magic()==MagicNumber && pos.PositionType()==t) c++;
+   return c;
   }
 
-//+------------------------------------------------------------------+
-int CountAllPositions()
+int CountAll()
   {
-   int count = 0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-     {
-      if(posInfo.SelectByIndex(i) &&
-         posInfo.Symbol() == _Symbol && posInfo.Magic() == MagicNumber)
-         count++;
-     }
-   return count;
+   int c = 0;
+   for(int i = PositionsTotal()-1; i >= 0; i--)
+      if(pos.SelectByIndex(i) && pos.Symbol()==_Symbol && pos.Magic()==MagicNumber) c++;
+   return c;
   }
 
-//+------------------------------------------------------------------+
-double GetLastOpenPrice(ENUM_POSITION_TYPE type)
+double LastOpenPrice(ENUM_POSITION_TYPE t)
   {
-   double   lastPrice = 0.0;
-   datetime lastTime  = 0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-     {
-      if(posInfo.SelectByIndex(i) &&
-         posInfo.Symbol() == _Symbol && posInfo.Magic() == MagicNumber &&
-         posInfo.PositionType() == type && posInfo.Time() >= lastTime)
-        {
-         lastTime  = posInfo.Time();
-         lastPrice = posInfo.PriceOpen();
-        }
-     }
-   return lastPrice;
+   double p = 0.0; datetime ts = 0;
+   for(int i = PositionsTotal()-1; i >= 0; i--)
+      if(pos.SelectByIndex(i) && pos.Symbol()==_Symbol &&
+         pos.Magic()==MagicNumber && pos.PositionType()==t && pos.Time()>=ts)
+        { ts = pos.Time(); p = pos.PriceOpen(); }
+   return p;
   }
 
-//+------------------------------------------------------------------+
-double GetAverageOpenPrice()
+double AvgOpenPrice()
   {
-   double vol = 0.0, wsum = 0.0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-     {
-      if(posInfo.SelectByIndex(i) &&
-         posInfo.Symbol() == _Symbol && posInfo.Magic() == MagicNumber)
-        {
-         wsum += posInfo.PriceOpen() * posInfo.Volume();
-         vol  += posInfo.Volume();
-        }
-     }
-   return (vol > 0.0) ? wsum / vol : 0.0;
+   double w = 0.0, v = 0.0;
+   for(int i = PositionsTotal()-1; i >= 0; i--)
+      if(pos.SelectByIndex(i) && pos.Symbol()==_Symbol && pos.Magic()==MagicNumber)
+        { w += pos.PriceOpen() * pos.Volume(); v += pos.Volume(); }
+   return (v > 0.0) ? w / v : 0.0;
   }
 
-//+------------------------------------------------------------------+
-bool IsInSession()
+bool InSession()
   {
-   MqlDateTime dt;
-   TimeToStruct(TimeGMT(), dt);
-   int h = dt.hour;
-
-   bool asia   = TradeAsia && (h >= AsiaOpen   && h < AsiaClose);
-   bool london = (h >= LondonOpen && h < LondonClose);
-   bool ny     = (h >= NYOpen     && h < NYClose);
-
-   return (asia || london || ny);
+   MqlDateTime dt; TimeToStruct(TimeGMT(), dt); int h = dt.hour;
+   bool asia   = TradeAsia && h >= Asia_Open   && h < Asia_Close;
+   bool london = h >= London_Open && h < London_Close;
+   bool ny     = h >= NY_Open     && h < NY_Close;
+   return asia || london || ny;
   }
 
-//+------------------------------------------------------------------+
-void DrawDashboard(double equity, double balance, double ddPct,
-                   int buyLvl, int sellLvl, double rsi,
-                   double atr, double gridStep, double atrRatio)
+//──────────────────────────────────────────────────────────────────
+void DrawPanel(double eq, double bal, double dd,
+               int buyLvl, int sellLvl,
+               double rsi, double atr, double stoch,
+               double gridStep, double atrRatio,
+               bool h1Bull, bool h1Bear)
   {
-   string cur    = AccountInfoString(ACCOUNT_CURRENCY);
-   double profit = equity - balance;
-   string profStr = StringFormat("%s%.2f %s", profit >= 0 ? "+" : "", profit, cur);
+   string cur = AccountInfoString(ACCOUNT_CURRENCY);
+   double pnl = eq - bal;
+   string pnlStr = StringFormat("%s%.2f", pnl >= 0 ? "+" : "", pnl);
+   string bias = h1Bull ? "BULLISH" : (h1Bear ? "BEARISH" : "NEUTRAL");
 
-   string dash = "";
-   dash += "══════════════════════════════\n";
-   dash += "   SCALPING GRID EA — GOLD\n";
-   dash += "══════════════════════════════\n";
-   dash += StringFormat("  Balance    : %9.2f %s\n", balance, cur);
-   dash += StringFormat("  Equity     : %9.2f %s\n", equity,  cur);
-   dash += StringFormat("  P&L        : %s\n",        profStr);
-   dash += StringFormat("  Drawdown   : %5.2f%%  (max %.2f%%)\n", ddPct, g_maxDrawdown);
-   dash += "──────────────────────────────\n";
-   dash += StringFormat("  BUY  grid  : %d / %d levels\n", buyLvl,  MaxGridLevels);
-   dash += StringFormat("  SELL grid  : %d / %d levels\n", sellLvl, MaxGridLevels);
-   dash += StringFormat("  Grid step  : $%.2f\n", gridStep);
-   dash += StringFormat("  ATR (M5)   : $%.2f\n", atr * 100.0);
-   dash += StringFormat("  ATR ratio  : %.2fx %s\n", atrRatio,
-                        atrRatio > ATR_MaxMultiplier ? "<<BLOCKED>>" : "OK");
-   dash += StringFormat("  RSI        : %.1f\n", rsi);
-   dash += "──────────────────────────────\n";
-   dash += StringFormat("  Trades     : %d  (wins: %d)\n", g_totalTrades, g_totalWins);
-   dash += StringFormat("  Session    : %s\n", IsInSession() ? "ACTIVE" : "CLOSED");
-   dash += StringFormat("  Spread     : $%.2f\n",
-                        (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * g_point);
-   dash += "══════════════════════════════";
-
-   Comment(dash);
+   string s = "";
+   s += "════════════════════════════════\n";
+   s += "    GOLD GRID SCALPER v3.0\n";
+   s += "════════════════════════════════\n";
+   s += StringFormat("  Balance  : %9.2f %s\n",  bal, cur);
+   s += StringFormat("  Equity   : %9.2f %s\n",  eq,  cur);
+   s += StringFormat("  P&L      : %s %s\n",      pnlStr, cur);
+   s += StringFormat("  Drawdown : %5.2f%%  (max: %.2f%%)\n", dd, g_maxDD);
+   s += "────────────────────────────────\n";
+   s += StringFormat("  H1 Bias  : %s (EMA%d)\n",  bias, EMA_Trend);
+   s += StringFormat("  RSI(7)   : %.1f\n",         rsi);
+   s += StringFormat("  Stoch    : %.1f\n",          stoch);
+   s += StringFormat("  ATR M5   : $%.2f\n",         atr * 100.0);
+   s += StringFormat("  ATR ratio: %.2fx %s\n",      atrRatio,
+                     atrRatio > ATR_SpikeRatio ? "BLOCKED(news)" : "OK");
+   s += "────────────────────────────────\n";
+   s += StringFormat("  BUY  grid: %d / %d levels\n", buyLvl,  MaxGridLevels);
+   s += StringFormat("  SELL grid: %d / %d levels\n", sellLvl, MaxGridLevels);
+   s += StringFormat("  Grid step: $%.2f\n",           gridStep);
+   s += StringFormat("  Basket TP: $%.2f\n",           BasketTP_USD);
+   s += "────────────────────────────────\n";
+   s += StringFormat("  Trades   : %d  (wins: %d)\n",  g_trades, g_wins);
+   s += StringFormat("  Session  : %s\n",               InSession() ? "ACTIVE" : "CLOSED");
+   s += StringFormat("  Spread   : $%.2f\n",
+                     (double)SymbolInfoInteger(_Symbol,SYMBOL_SPREAD) * g_pt);
+   s += "════════════════════════════════";
+   Comment(s);
   }
 
-//+------------------------------------------------------------------+
+//──────────────────────────────────────────────────────────────────
 void OnTradeTransaction(const MqlTradeTransaction &trans,
-                        const MqlTradeRequest     &request,
-                        const MqlTradeResult      &result)
+                        const MqlTradeRequest     &req,
+                        const MqlTradeResult      &res)
   {
-   if(trans.type == TRADE_TRANSACTION_DEAL_ADD)
+   if(trans.type == TRADE_TRANSACTION_DEAL_ADD && HistoryDealSelect(trans.deal))
      {
-      if(HistoryDealSelect(trans.deal))
-        {
-         double p = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
-         if(p != 0.0)
-           {
-            g_totalProfit += p;
-            if(p > 0.0) g_totalWins++;
-           }
-        }
+      double p = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
+      if(p != 0.0) { g_profit += p; if(p > 0.0) g_wins++; }
      }
   }
-//+------------------------------------------------------------------+
+//──────────────────────────────────────────────────────────────────
