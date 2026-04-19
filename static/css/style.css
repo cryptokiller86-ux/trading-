@@ -1,0 +1,493 @@
+/* ─── Reset & Variables ──────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:          #0a0d14;
+  --bg-card:     #111621;
+  --bg-card2:    #161c2a;
+  --bg-header:   #0d1117;
+  --border:      #1e2a3d;
+  --border-glow: #243452;
+
+  --text:        #e2e8f4;
+  --text-muted:  #6b7a99;
+  --text-dim:    #3d4f6e;
+
+  --gold:        #f5c842;
+  --gold-dark:   #c9973a;
+  --btc:         #f7931a;
+  --btc-dark:    #c46a0a;
+
+  --buy:         #00d68f;
+  --buy-bg:      rgba(0, 214, 143, 0.08);
+  --buy-border:  rgba(0, 214, 143, 0.3);
+
+  --sell:        #ff4d6d;
+  --sell-bg:     rgba(255, 77, 109, 0.08);
+  --sell-border: rgba(255, 77, 109, 0.3);
+
+  --neutral:     #7b8db0;
+  --neutral-bg:  rgba(123, 141, 176, 0.08);
+
+  --tp-color:    #00c9a7;
+  --sl-color:    #ff6b6b;
+  --entry-color: #5b9df5;
+
+  --radius:      12px;
+  --shadow:      0 4px 24px rgba(0,0,0,0.5);
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────────── */
+.header {
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(8px);
+}
+
+.header-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.logo-icon { font-size: 22px; color: var(--gold); }
+.logo-text  { color: var(--text); }
+.logo-pro   { color: var(--gold); background: rgba(245,200,66,0.12); padding: 1px 6px; border-radius: 4px; font-size: 11px; vertical-align: middle; }
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sep { color: var(--border); }
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: background 0.4s;
+}
+.dot.live  { background: var(--buy); box-shadow: 0 0 6px var(--buy); animation: pulse-dot 2s infinite; }
+.dot.error { background: var(--sell); }
+
+@keyframes pulse-dot {
+  0%,100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+/* ─── Hero ───────────────────────────────────────────────────────────────── */
+.hero {
+  text-align: center;
+  padding: 16px 24px 8px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.hero-sub {
+  color: var(--text-muted);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* ─── Main grid ──────────────────────────────────────────────────────────── */
+.main-grid {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 16px 24px 32px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 960px) {
+  .main-grid { grid-template-columns: 1fr; }
+}
+
+/* ─── Asset Section ──────────────────────────────────────────────────────── */
+.asset-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ─── Asset Header ───────────────────────────────────────────────────────── */
+.asset-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.asset-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.asset-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.gold-icon { background: rgba(245,200,66,0.15); color: var(--gold); border: 1px solid rgba(245,200,66,0.3); }
+.btc-icon  { background: rgba(247,147,26,0.15);  color: var(--btc);  border: 1px solid rgba(247,147,26,0.3); }
+
+.asset-title h2 { font-size: 18px; font-weight: 700; }
+.asset-pair     { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+.asset-price-block { text-align: right; }
+.asset-price { font-size: 22px; font-weight: 700; font-family: 'Courier New', monospace; color: var(--text); }
+.asset-change { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.asset-change.up   { color: var(--buy); }
+.asset-change.down { color: var(--sell); }
+
+.refresh-btn {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.refresh-btn:hover { background: var(--border); color: var(--text); transform: rotate(180deg); }
+
+/* ─── Signal Banner ──────────────────────────────────────────────────────── */
+.signal-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card2);
+  transition: background 0.4s, border-color 0.4s;
+}
+
+.signal-banner.buy  { background: var(--buy-bg);  border-bottom-color: var(--buy-border); }
+.signal-banner.sell { background: var(--sell-bg); border-bottom-color: var(--sell-border); }
+
+.signal-dir {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  transition: color 0.4s;
+}
+.signal-dir.buy     { color: var(--buy); text-shadow: 0 0 20px rgba(0,214,143,0.4); }
+.signal-dir.sell    { color: var(--sell); text-shadow: 0 0 20px rgba(255,77,109,0.4); }
+.signal-dir.neutral { color: var(--neutral); }
+
+.signal-strength {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+}
+.signal-strength.fort    { background: rgba(0,214,143,0.15); color: var(--buy); }
+.signal-strength.modere  { background: rgba(91,157,245,0.15); color: var(--entry-color); }
+.signal-strength.faible  { background: rgba(123,141,176,0.15); color: var(--neutral); }
+
+.signal-time { font-size: 11px; color: var(--text-dim); }
+
+/* ─── Level Cards ────────────────────────────────────────────────────────── */
+.levels-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.level-card {
+  background: var(--bg-card);
+  padding: 14px 12px;
+  text-align: center;
+  position: relative;
+  transition: background 0.3s;
+}
+
+.level-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  border-radius: 0;
+}
+
+.tp2-card::before   { background: var(--tp-color); opacity: 0.7; }
+.tp1-card::before   { background: var(--tp-color); opacity: 0.5; }
+.entry-card::before { background: var(--entry-color); opacity: 0.8; }
+.sl-card::before    { background: var(--sl-color); opacity: 0.6; }
+
+.level-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--text-dim);
+}
+
+.tp2-card   .level-label { color: var(--tp-color); }
+.tp1-card   .level-label { color: var(--tp-color); opacity: 0.7; }
+.entry-card .level-label { color: var(--entry-color); }
+.sl-card    .level-label { color: var(--sl-color); }
+
+.level-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.level-rr {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ─── Chart ──────────────────────────────────────────────────────────────── */
+.chart-wrap {
+  padding: 12px 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.chart-container {
+  width: 100%;
+  height: 260px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* ─── Indicators Panel ───────────────────────────────────────────────────── */
+.indicators-panel {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  font-weight: 700;
+}
+
+.indicators-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.ind-item {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ind-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.ind-value {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  color: var(--text);
+}
+
+.ind-value.bullish { color: var(--buy); }
+.ind-value.bearish { color: var(--sell); }
+.ind-value.neutral { color: var(--neutral); }
+
+.ind-bar {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ind-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+/* ─── Reasons Panel ──────────────────────────────────────────────────────── */
+.reasons-panel {
+  padding: 16px 20px;
+}
+
+.reasons-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+
+.reason-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reason-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-card2);
+  padding: 7px 12px;
+  border-radius: 6px;
+  border-left: 3px solid var(--border);
+  transition: border-color 0.3s;
+}
+
+.reason-item.buy-reason  { border-left-color: var(--buy); }
+.reason-item.sell-reason { border-left-color: var(--sell); }
+
+.reason-item::before {
+  content: '•';
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.reason-item.buy-reason::before  { color: var(--buy); }
+.reason-item.sell-reason::before { color: var(--sell); }
+
+/* ─── Loading Overlay ────────────────────────────────────────────────────── */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,13,20,0.95);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 999;
+  transition: opacity 0.5s;
+}
+
+.loading-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--border);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading-overlay p      { color: var(--text); font-size: 15px; }
+.loading-overlay .loading-sub { color: var(--text-muted); font-size: 12px; }
+
+/* ─── Footer ─────────────────────────────────────────────────────────────── */
+.footer {
+  text-align: center;
+  padding: 20px 24px;
+  color: var(--text-dim);
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.disclaimer { color: var(--text-dim); opacity: 0.7; }
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ─── Animations ─────────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.asset-section { animation: fadeIn 0.5s ease both; }
+#section-BTC   { animation-delay: 0.1s; }
+
+.flash {
+  animation: flash-anim 0.6s ease;
+}
+
+@keyframes flash-anim {
+  0%   { background: rgba(91,157,245,0.15); }
+  100% { background: transparent; }
+}

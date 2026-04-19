@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>TradingSignals Pro — Gold &amp; Bitcoin</title>
+  <link rel="stylesheet" href="/static/css/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">◈</span>
+        <span class="logo-text">TradingSignals <span class="logo-pro">PRO</span></span>
+      </div>
+      <div class="header-status">
+        <span class="dot" id="conn-dot"></span>
+        <span id="conn-label">Connexion…</span>
+        <span class="sep">|</span>
+        <span id="server-time">--:--:-- UTC</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero banner -->
+  <div class="hero">
+    <p class="hero-sub">Signaux horaires &bull; Gold XAU/USD &bull; Bitcoin BTC/USD &bull; Prix marché réel</p>
+  </div>
+
+  <!-- Main grid -->
+  <main class="main-grid" id="main-grid">
+
+    <!-- GOLD card -->
+    <section class="asset-section" id="section-GOLD">
+      <div class="asset-header">
+        <div class="asset-title">
+          <span class="asset-icon gold-icon">Au</span>
+          <div>
+            <h2>Gold</h2>
+            <span class="asset-pair">XAU/USD</span>
+          </div>
+        </div>
+        <div class="asset-price-block">
+          <div class="asset-price" id="price-GOLD">--</div>
+          <div class="asset-change" id="change-GOLD">--</div>
+        </div>
+        <button class="refresh-btn" onclick="forceRefresh('GOLD')" title="Forcer actualisation">⟳</button>
+      </div>
+
+      <!-- Signal badge -->
+      <div class="signal-banner" id="signal-banner-GOLD">
+        <div class="signal-dir" id="signal-dir-GOLD">--</div>
+        <div class="signal-strength" id="signal-strength-GOLD"></div>
+        <div class="signal-time" id="signal-time-GOLD"></div>
+      </div>
+
+      <!-- Entry / SL / TP table -->
+      <div class="levels-grid">
+        <div class="level-card tp2-card">
+          <div class="level-label">TP2</div>
+          <div class="level-value" id="tp2-GOLD">--</div>
+          <div class="level-rr" id="rr2-GOLD"></div>
+        </div>
+        <div class="level-card tp1-card">
+          <div class="level-label">TP1</div>
+          <div class="level-value" id="tp1-GOLD">--</div>
+          <div class="level-rr" id="rr1-GOLD"></div>
+        </div>
+        <div class="level-card entry-card">
+          <div class="level-label">ENTRÉE</div>
+          <div class="level-value" id="entry-GOLD">--</div>
+          <div class="level-rr">Prix marché</div>
+        </div>
+        <div class="level-card sl-card">
+          <div class="level-label">STOP LOSS</div>
+          <div class="level-value" id="sl-GOLD">--</div>
+          <div class="level-rr" id="risk-GOLD"></div>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="chart-wrap">
+        <div class="chart-container" id="chart-GOLD"></div>
+      </div>
+
+      <!-- Indicators panel -->
+      <div class="indicators-panel">
+        <h3 class="panel-title">Indicateurs Techniques</h3>
+        <div class="indicators-grid" id="indicators-GOLD"></div>
+      </div>
+
+      <!-- Reasons -->
+      <div class="reasons-panel" id="reasons-GOLD"></div>
+    </section>
+
+    <!-- BTC card -->
+    <section class="asset-section" id="section-BTC">
+      <div class="asset-header">
+        <div class="asset-title">
+          <span class="asset-icon btc-icon">₿</span>
+          <div>
+            <h2>Bitcoin</h2>
+            <span class="asset-pair">BTC/USD</span>
+          </div>
+        </div>
+        <div class="asset-price-block">
+          <div class="asset-price" id="price-BTC">--</div>
+          <div class="asset-change" id="change-BTC">--</div>
+        </div>
+        <button class="refresh-btn" onclick="forceRefresh('BTC')" title="Forcer actualisation">⟳</button>
+      </div>
+
+      <div class="signal-banner" id="signal-banner-BTC">
+        <div class="signal-dir" id="signal-dir-BTC">--</div>
+        <div class="signal-strength" id="signal-strength-BTC"></div>
+        <div class="signal-time" id="signal-time-BTC"></div>
+      </div>
+
+      <div class="levels-grid">
+        <div class="level-card tp2-card">
+          <div class="level-label">TP2</div>
+          <div class="level-value" id="tp2-BTC">--</div>
+          <div class="level-rr" id="rr2-BTC"></div>
+        </div>
+        <div class="level-card tp1-card">
+          <div class="level-label">TP1</div>
+          <div class="level-value" id="tp1-BTC">--</div>
+          <div class="level-rr" id="rr1-BTC"></div>
+        </div>
+        <div class="level-card entry-card">
+          <div class="level-label">ENTRÉE</div>
+          <div class="level-value" id="entry-BTC">--</div>
+          <div class="level-rr">Prix marché</div>
+        </div>
+        <div class="level-card sl-card">
+          <div class="level-label">STOP LOSS</div>
+          <div class="level-value" id="sl-BTC">--</div>
+          <div class="level-rr" id="risk-BTC"></div>
+        </div>
+      </div>
+
+      <div class="chart-wrap">
+        <div class="chart-container" id="chart-BTC"></div>
+      </div>
+
+      <div class="indicators-panel">
+        <h3 class="panel-title">Indicateurs Techniques</h3>
+        <div class="indicators-grid" id="indicators-BTC"></div>
+      </div>
+
+      <div class="reasons-panel" id="reasons-BTC"></div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <p>TradingSignals Pro &bull; Mise à jour toutes les 5 minutes &bull; Analyse technique basée sur RSI, MACD, EMA, Bollinger Bands, ATR</p>
+    <p class="disclaimer">⚠️ Signaux à titre informatif uniquement. Le trading comporte des risques. Gérez votre capital.</p>
+  </footer>
+
+  <!-- Loading overlay -->
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="loading-spinner"></div>
+    <p>Chargement des signaux en cours…</p>
+    <p class="loading-sub">Connexion aux marchés réels</p>
+  </div>
+
+  <script src="/static/js/main.js"></script>
+</body>
+</html>
