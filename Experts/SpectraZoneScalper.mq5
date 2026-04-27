@@ -1,192 +1,165 @@
 //+------------------------------------------------------------------+
-//|                    Spectra Zone Scalper                          |
-//|              Reproduction basée sur la stratégie publique        |
-//|         Zone Recovery + Multi-Indicator Scalper for XAUUSD       |
+//|                    Spectra Zone Scalper v2.0                     |
+//|              Trend Following + Mean Reversion Hybrid              |
+//|         Version corrigée après backtest catastrophique           |
 //+------------------------------------------------------------------+
-#property copyright   "Reproduction - Allan Munene Mutiiria Strategy"
-#property version     "1.00"
+#property copyright   "Spectra Zone Scalper v2 - Corrected"
+#property version     "2.00"
 #property strict
 
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
-#include <Trade\OrderInfo.mqh>
 
 CTrade         trade;
 CPositionInfo  posInfo;
-COrderInfo     orderInfo;
 
 //--- Paramètres d'entrée
-input group "=== PARAMETRES GENERAUX ==="
-input string   InpSymbol          = "XAUUSD";      // Symbole (défaut XAUUSD)
-input ENUM_TIMEFRAMES InpTimeframe = PERIOD_M5;    // Timeframe principal
-input ENUM_TIMEFRAMES InpTF2       = PERIOD_M15;   // Timeframe confirmation 2
-input ENUM_TIMEFRAMES InpTF3       = PERIOD_H1;    // Timeframe confirmation 3
+input group "=== TIMEFRAMES ==="
+input ENUM_TIMEFRAMES InpEntryTF    = PERIOD_M5;     // TF entrée
+input ENUM_TIMEFRAMES InpTrendTF    = PERIOD_H1;     // TF tendance
 
-input group "=== GESTION DU RISQUE ==="
-input double   InpLotSize          = 0.01;         // Taille du lot initial
-input double   InpRiskPercent      = 1.0;          // Risque par trade (%)
-input bool     InpAutoLot          = true;         // Lot automatique selon risque
-input double   InpTakeProfit       = 30.0;         // Take Profit (points)
-input double   InpStopLoss         = 50.0;         // Stop Loss (points)
-input double   InpTrailingStop     = 15.0;         // Trailing Stop (points)
-input double   InpTrailingStep     = 5.0;          // Pas du Trailing (points)
-input int      InpMaxTrades        = 5;            // Trades max simultanés
-input double   InpMaxDrawdown      = 20.0;         // Drawdown max (%)
-input int      InpMaxMinutes       = 30;           // Durée max d'un trade (min)
-
-input group "=== ZONE RECOVERY ==="
-input bool     InpZoneRecovery     = true;         // Activer Zone Recovery
-input double   InpZoneSize         = 20.0;         // Taille de la zone (points)
-input double   InpRecoveryLotMult  = 1.5;          // Multiplicateur lot recovery
-input int      InpMaxRecovery      = 4;            // Niveaux recovery max
-input double   InpRecoveryTP       = 10.0;         // TP recovery (points)
-
-input group "=== INDICATEURS RSI ==="
-input int      InpRSIPeriod        = 14;           // Période RSI
-input double   InpRSIOverbought    = 70.0;         // RSI surachat
-input double   InpRSIOversold      = 30.0;         // RSI survente
-input double   InpRSIBuyLevel      = 40.0;         // RSI niveau achat
-input double   InpRSISellLevel     = 60.0;         // RSI niveau vente
-
-input group "=== INDICATEURS STOCHASTIC ==="
-input int      InpStochK           = 14;           // Stochastic %K
-input int      InpStochD           = 3;            // Stochastic %D
-input int      InpStochSlowing     = 3;            // Stochastic slowing
-input double   InpStochOverbought  = 80.0;         // Stoch surachat
-input double   InpStochOversold    = 20.0;         // Stoch survente
-
-input group "=== INDICATEURS CCI ==="
-input int      InpCCIPeriod        = 20;           // Période CCI
-input double   InpCCIBuyLevel      = -100.0;       // CCI niveau achat
-input double   InpCCISellLevel     = 100.0;        // CCI niveau vente
-
-input group "=== INDICATEURS ADX ==="
-input int      InpADXPeriod        = 14;           // Période ADX
-input double   InpADXMinLevel      = 20.0;         // ADX niveau min (tendance)
+input group "=== GESTION DU RISQUE (CRITIQUE) ==="
+input double   InpRiskPercent       = 0.5;           // Risque par trade (%) - PRUDENT
+input double   InpStopLossPoints    = 200;           // SL en points (XAUUSD: 200pts=2$)
+input double   InpTPMultiplier      = 2.0;           // TP = SL × multiplier (R:R 1:2)
+input double   InpTrailingStart     = 100;           // Activation trailing (points profit)
+input double   InpTrailingStop      = 80;            // Distance trailing (points)
+input int      InpMaxTrades         = 1;             // 1 trade à la fois (sécurité)
+input double   InpMaxDailyLoss      = 3.0;           // Perte max journalière (%)
+input int      InpMaxLossesPerDay   = 3;             // Pertes consécutives max / jour
 
 input group "=== FILTRES ==="
-input bool     InpTradeMonday      = true;         // Trader Lundi
-input bool     InpTradeTuesday     = true;         // Trader Mardi
-input bool     InpTradeWednesday   = true;         // Trader Mercredi
-input bool     InpTradeThursday    = true;         // Trader Jeudi
-input bool     InpTradeFriday      = true;         // Trader Vendredi
-input int      InpStartHour        = 2;            // Heure début (serveur)
-input int      InpEndHour          = 22;           // Heure fin (serveur)
-input int      InpMagicNumber      = 202501;       // Magic Number
+input double   InpMaxSpreadPoints   = 50;            // Spread max (XAUUSD: 50pts=0.5$)
+input double   InpMinATR            = 100;           // ATR min (volatilité min)
+input int      InpATRPeriod         = 14;            // Période ATR
+input int      InpStartHour         = 8;             // Heure début (Londres)
+input int      InpEndHour           = 20;            // Heure fin (NY close)
+input bool     InpAvoidFriday       = true;          // Pas de trade vendredi PM
 
-//--- Variables globales handles
-int    hRSI_M, hRSI_M2, hRSI_M3;
-int    hStoch_M, hStoch_M2, hStoch_M3;
-int    hCCI_M, hCCI_M2, hCCI_M3;
-int    hADX_M, hADX_M2, hADX_M3;
-int    hAO_M;
+input group "=== INDICATEURS TENDANCE (H1) ==="
+input int      InpEMAFast           = 21;            // EMA rapide
+input int      InpEMASlow           = 50;            // EMA lente
+input int      InpADXPeriod         = 14;            // ADX période
+input double   InpADXMin            = 22.0;          // ADX min pour trade
+
+input group "=== INDICATEURS ENTREE (M5) ==="
+input int      InpRSIPeriod         = 14;            // RSI période
+input double   InpRSIBuyMax         = 60.0;          // RSI < 60 pour BUY (pullback up)
+input double   InpRSIBuyMin         = 35.0;          // RSI > 35 pour BUY
+input double   InpRSISellMin        = 40.0;          // RSI > 40 pour SELL (pullback down)
+input double   InpRSISellMax        = 65.0;          // RSI < 65 pour SELL
+input int      InpStochK            = 14;
+input int      InpStochD            = 3;
+input int      InpStochSlowing      = 3;
+
+input group "=== ZONE RECOVERY (DESACTIVE PAR DEFAUT) ==="
+input bool     InpZoneRecovery      = false;         // ATTENTION: martingale dangereuse
+input double   InpRecoveryLotMult   = 1.3;
+input int      InpMaxRecovery       = 2;
+
+input group "=== DIVERS ==="
+input int      InpMagicNumber       = 202502;
+input bool     InpShowDashboard     = true;
+
+//--- Handles indicateurs
+int hEMAFast, hEMASlow, hADX_H1;
+int hRSI_M5, hStoch_M5, hATR_M5;
 
 double g_point;
 int    g_digits;
-double g_initialBalance;
 
-//--- Structure Zone Recovery
-struct ZoneRecoveryInfo {
-   ulong  ticket;
-   int    direction;    // 1=BUY, -1=SELL
-   double entryPrice;
-   double zoneHigh;
-   double zoneLow;
-   double lotSize;
-   int    level;
-   bool   active;
-};
-
-ZoneRecoveryInfo g_zones[];
+//--- Stats journalières
+datetime g_todayStart = 0;
+int      g_lossesToday = 0;
+double   g_dailyStartBalance = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   if(!InitIndicators()) {
-      Print("Erreur initialisation indicateurs");
+   trade.SetExpertMagicNumber(InpMagicNumber);
+   trade.SetDeviationInPoints(20);
+   trade.SetTypeFilling(ORDER_FILLING_IOC);
+
+   g_point  = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   g_digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+
+   hEMAFast  = iMA(_Symbol, InpTrendTF, InpEMAFast, 0, MODE_EMA, PRICE_CLOSE);
+   hEMASlow  = iMA(_Symbol, InpTrendTF, InpEMASlow, 0, MODE_EMA, PRICE_CLOSE);
+   hADX_H1   = iADX(_Symbol, InpTrendTF, InpADXPeriod);
+   hRSI_M5   = iRSI(_Symbol, InpEntryTF, InpRSIPeriod, PRICE_CLOSE);
+   hStoch_M5 = iStochastic(_Symbol, InpEntryTF, InpStochK, InpStochD, InpStochSlowing, MODE_SMA, STO_LOWHIGH);
+   hATR_M5   = iATR(_Symbol, InpEntryTF, InpATRPeriod);
+
+   if(hEMAFast == INVALID_HANDLE || hEMASlow == INVALID_HANDLE ||
+      hADX_H1 == INVALID_HANDLE || hRSI_M5 == INVALID_HANDLE ||
+      hStoch_M5 == INVALID_HANDLE || hATR_M5 == INVALID_HANDLE) {
+      Print("Erreur init indicateurs");
       return INIT_FAILED;
    }
 
-   trade.SetExpertMagicNumber(InpMagicNumber);
-   trade.SetDeviationInPoints(10);
-   trade.SetTypeFilling(ORDER_FILLING_IOC);
+   ResetDailyStats();
 
-   g_point          = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   g_digits         = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
-   g_initialBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-
-   ArrayResize(g_zones, 0);
-
-   Print("Spectra Zone Scalper initialisé sur ", _Symbol);
+   Print("Spectra Zone Scalper v2 initialisé - logique corrigée");
    return INIT_SUCCEEDED;
-}
-
-//+------------------------------------------------------------------+
-bool InitIndicators()
-{
-   string sym = _Symbol;
-
-   hRSI_M   = iRSI(sym, InpTimeframe, InpRSIPeriod, PRICE_CLOSE);
-   hRSI_M2  = iRSI(sym, InpTF2, InpRSIPeriod, PRICE_CLOSE);
-   hRSI_M3  = iRSI(sym, InpTF3, InpRSIPeriod, PRICE_CLOSE);
-
-   hStoch_M  = iStochastic(sym, InpTimeframe, InpStochK, InpStochD, InpStochSlowing, MODE_SMA, STO_LOWHIGH);
-   hStoch_M2 = iStochastic(sym, InpTF2, InpStochK, InpStochD, InpStochSlowing, MODE_SMA, STO_LOWHIGH);
-   hStoch_M3 = iStochastic(sym, InpTF3, InpStochK, InpStochD, InpStochSlowing, MODE_SMA, STO_LOWHIGH);
-
-   hCCI_M   = iCCI(sym, InpTimeframe, InpCCIPeriod, PRICE_TYPICAL);
-   hCCI_M2  = iCCI(sym, InpTF2, InpCCIPeriod, PRICE_TYPICAL);
-   hCCI_M3  = iCCI(sym, InpTF3, InpCCIPeriod, PRICE_TYPICAL);
-
-   hADX_M   = iADX(sym, InpTimeframe, InpADXPeriod);
-   hADX_M2  = iADX(sym, InpTF2, InpADXPeriod);
-   hADX_M3  = iADX(sym, InpTF3, InpADXPeriod);
-
-   hAO_M    = iAO(sym, InpTimeframe);
-
-   if(hRSI_M == INVALID_HANDLE || hStoch_M == INVALID_HANDLE ||
-      hCCI_M == INVALID_HANDLE || hADX_M == INVALID_HANDLE || hAO_M == INVALID_HANDLE)
-      return false;
-
-   return true;
 }
 
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   IndicatorRelease(hRSI_M);  IndicatorRelease(hRSI_M2);  IndicatorRelease(hRSI_M3);
-   IndicatorRelease(hStoch_M); IndicatorRelease(hStoch_M2); IndicatorRelease(hStoch_M3);
-   IndicatorRelease(hCCI_M);  IndicatorRelease(hCCI_M2);  IndicatorRelease(hCCI_M3);
-   IndicatorRelease(hADX_M);  IndicatorRelease(hADX_M2);  IndicatorRelease(hADX_M3);
-   IndicatorRelease(hAO_M);
+   IndicatorRelease(hEMAFast); IndicatorRelease(hEMASlow);
+   IndicatorRelease(hADX_H1);  IndicatorRelease(hRSI_M5);
+   IndicatorRelease(hStoch_M5); IndicatorRelease(hATR_M5);
+   Comment("");
 }
 
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   CheckNewDay();
+
+   if(InpShowDashboard) DrawDashboard();
    if(!IsNewBar()) return;
+
+   ManageTrailing();
+
    if(!IsTradingAllowed()) return;
-   if(!CheckDrawdown()) return;
+   if(!CheckDailyLimits()) return;
+   if(!CheckSpread()) return;
+   if(!CheckVolatility()) return;
+   if(CountMyTrades() >= InpMaxTrades) return;
 
-   ManageOpenTrades();
+   int trend = GetTrend();
+   if(trend == 0) return;
 
-   if(InpZoneRecovery)
-      ManageZoneRecovery();
+   int signal = GetEntrySignal(trend);
+   if(signal != 0) OpenTrade(signal);
+}
 
-   CloseOldTrades();
+//+------------------------------------------------------------------+
+void CheckNewDay()
+{
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   datetime dayStart = StringToTime(StringFormat("%04d.%02d.%02d 00:00", dt.year, dt.mon, dt.day));
+   if(dayStart != g_todayStart) {
+      g_todayStart = dayStart;
+      g_lossesToday = 0;
+      g_dailyStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+   }
+}
 
-   int signal = GetSignal();
-   if(signal != 0 && CountMyTrades() < InpMaxTrades)
-      OpenTrade(signal);
+void ResetDailyStats() {
+   g_lossesToday = 0;
+   g_dailyStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
 }
 
 //+------------------------------------------------------------------+
 bool IsNewBar()
 {
    static datetime lastBar = 0;
-   datetime currentBar = iTime(_Symbol, InpTimeframe, 0);
-   if(currentBar == lastBar) return false;
-   lastBar = currentBar;
+   datetime cur = iTime(_Symbol, InpEntryTF, 0);
+   if(cur == lastBar) return false;
+   lastBar = cur;
    return true;
 }
 
@@ -195,38 +168,41 @@ bool IsTradingAllowed()
 {
    MqlDateTime dt;
    TimeToStruct(TimeCurrent(), dt);
-
-   int hour = dt.hour;
-   int dow  = dt.day_of_week;
-
-   if(hour < InpStartHour || hour >= InpEndHour) return false;
-
-   if(dow == 1 && !InpTradeMonday)    return false;
-   if(dow == 2 && !InpTradeTuesday)   return false;
-   if(dow == 3 && !InpTradeWednesday) return false;
-   if(dow == 4 && !InpTradeThursday)  return false;
-   if(dow == 5 && !InpTradeFriday)    return false;
-
+   if(dt.hour < InpStartHour || dt.hour >= InpEndHour) return false;
+   if(dt.day_of_week == 0 || dt.day_of_week == 6) return false;
+   if(InpAvoidFriday && dt.day_of_week == 5 && dt.hour >= 17) return false;
    return true;
 }
 
 //+------------------------------------------------------------------+
-bool CheckDrawdown()
+bool CheckDailyLimits()
 {
+   if(g_lossesToday >= InpMaxLossesPerDay) return false;
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
-   if(balance <= 0) return false;
-   double dd = (balance - equity) / balance * 100.0;
-   if(dd >= InpMaxDrawdown) {
-      Print("Drawdown max atteint: ", DoubleToString(dd, 2), "% - trading suspendu");
-      return false;
+   if(g_dailyStartBalance > 0) {
+      double dailyLoss = (g_dailyStartBalance - balance) / g_dailyStartBalance * 100.0;
+      if(dailyLoss >= InpMaxDailyLoss) return false;
    }
    return true;
 }
 
 //+------------------------------------------------------------------+
-// Lecture valeur indicateur (buffer 0 = valeur principale)
-double GetIndicatorValue(int handle, int buffer, int shift = 1)
+bool CheckSpread()
+{
+   double spread = (SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID)) / g_point;
+   return spread <= InpMaxSpreadPoints;
+}
+
+//+------------------------------------------------------------------+
+bool CheckVolatility()
+{
+   double atr = GetVal(hATR_M5, 0, 1);
+   if(atr == EMPTY_VALUE) return false;
+   return (atr / g_point) >= InpMinATR;
+}
+
+//+------------------------------------------------------------------+
+double GetVal(int handle, int buffer, int shift)
 {
    double arr[];
    ArraySetAsSeries(arr, true);
@@ -235,330 +211,189 @@ double GetIndicatorValue(int handle, int buffer, int shift = 1)
 }
 
 //+------------------------------------------------------------------+
-// Score de signal sur un timeframe : +1=buy, -1=sell, 0=neutre
-int GetTimeframeScore(int rsiH, int stochH, int cciH, int adxH, int shift = 1)
+// Tendance basée sur EMA21/EMA50 H1 + ADX > 22
+// +1 = uptrend, -1 = downtrend, 0 = pas de tendance claire
+int GetTrend()
 {
-   double rsi   = GetIndicatorValue(rsiH, 0, shift);
-   double stochK = GetIndicatorValue(stochH, 0, shift);
-   double cci   = GetIndicatorValue(cciH, 0, shift);
-   double adx   = GetIndicatorValue(adxH, 0, shift);
+   double emaFast = GetVal(hEMAFast, 0, 1);
+   double emaSlow = GetVal(hEMASlow, 0, 1);
+   double adx     = GetVal(hADX_H1, 0, 1);
 
-   if(rsi == EMPTY_VALUE || stochK == EMPTY_VALUE || cci == EMPTY_VALUE || adx == EMPTY_VALUE)
-      return 0;
+   if(emaFast == EMPTY_VALUE || emaSlow == EMPTY_VALUE || adx == EMPTY_VALUE) return 0;
+   if(adx < InpADXMin) return 0;
 
-   int buyScore  = 0;
-   int sellScore = 0;
-
-   // RSI
-   if(rsi < InpRSIBuyLevel)  buyScore++;
-   if(rsi > InpRSISellLevel) sellScore++;
-
-   // Stochastic
-   if(stochK < InpStochOversold)  buyScore++;
-   if(stochK > InpStochOverbought) sellScore++;
-
-   // CCI
-   if(cci < InpCCIBuyLevel)  buyScore++;
-   if(cci > InpCCISellLevel) sellScore++;
-
-   // ADX filtre (tendance présente)
-   if(adx < InpADXMinLevel) return 0;
-
-   if(buyScore >= 2)  return 1;
-   if(sellScore >= 2) return -1;
+   if(emaFast > emaSlow) return 1;
+   if(emaFast < emaSlow) return -1;
    return 0;
 }
 
 //+------------------------------------------------------------------+
-// Signal global avec triple confirmation de timeframe
-int GetSignal()
+// Signal d'entrée : retracement RSI dans le sens de la tendance H1
+// trend=+1 : on cherche BUY sur RSI bas (pullback bullish)
+// trend=-1 : on cherche SELL sur RSI haut (pullback bearish)
+int GetEntrySignal(int trend)
 {
-   int score1 = GetTimeframeScore(hRSI_M,  hStoch_M,  hCCI_M,  hADX_M);
-   int score2 = GetTimeframeScore(hRSI_M2, hStoch_M2, hCCI_M2, hADX_M2);
-   int score3 = GetTimeframeScore(hRSI_M3, hStoch_M3, hCCI_M3, hADX_M3);
+   double rsi   = GetVal(hRSI_M5, 0, 1);
+   double rsiPrev = GetVal(hRSI_M5, 0, 2);
+   double stochK = GetVal(hStoch_M5, 0, 1);
+   double stochD = GetVal(hStoch_M5, 1, 1);
+   double stochKp = GetVal(hStoch_M5, 0, 2);
+   double stochDp = GetVal(hStoch_M5, 1, 2);
 
-   double ao = GetIndicatorValue(hAO_M, 0);
-   int aoSignal = 0;
-   if(ao > 0) aoSignal = 1;
-   if(ao < 0) aoSignal = -1;
+   if(rsi == EMPTY_VALUE || stochK == EMPTY_VALUE) return 0;
 
-   int buyCount  = 0;
-   int sellCount = 0;
-
-   if(score1 == 1) buyCount++;  if(score1 == -1) sellCount++;
-   if(score2 == 1) buyCount++;  if(score2 == -1) sellCount++;
-   if(score3 == 1) buyCount++;  if(score3 == -1) sellCount++;
-   if(aoSignal == 1) buyCount++; if(aoSignal == -1) sellCount++;
-
-   // Strong signal : 3+ confirmations
-   if(buyCount >= 3)  return 1;
-   if(sellCount >= 3) return -1;
+   // BUY: tendance up + RSI dans zone pullback + stoch croise haussier
+   if(trend == 1) {
+      bool rsiOK   = (rsi >= InpRSIBuyMin && rsi <= InpRSIBuyMax && rsi > rsiPrev);
+      bool stochOK = (stochKp <= stochDp && stochK > stochD && stochK < 80);
+      if(rsiOK && stochOK) return 1;
+   }
+   // SELL: tendance down + RSI dans zone pullback + stoch croise baissier
+   if(trend == -1) {
+      bool rsiOK   = (rsi >= InpRSISellMin && rsi <= InpRSISellMax && rsi < rsiPrev);
+      bool stochOK = (stochKp >= stochDp && stochK < stochD && stochK > 20);
+      if(rsiOK && stochOK) return -1;
+   }
    return 0;
-}
-
-//+------------------------------------------------------------------+
-double CalcLotSize(double slPoints)
-{
-   if(!InpAutoLot) return NormalizeLot(InpLotSize);
-
-   double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
-   double riskMoney = balance * InpRiskPercent / 100.0;
-   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-   double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-
-   if(tickValue <= 0 || tickSize <= 0 || slPoints <= 0) return NormalizeLot(InpLotSize);
-
-   double lotValue = (slPoints * g_point / tickSize) * tickValue;
-   if(lotValue <= 0) return NormalizeLot(InpLotSize);
-
-   return NormalizeLot(riskMoney / lotValue);
 }
 
 //+------------------------------------------------------------------+
 double NormalizeLot(double lot)
 {
-   double minLot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   double maxLot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-   double stepLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-
-   lot = MathFloor(lot / stepLot) * stepLot;
-   lot = MathMax(minLot, MathMin(maxLot, lot));
-   return lot;
+   double minL = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxL = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   lot = MathFloor(lot / step) * step;
+   return MathMax(minL, MathMin(maxL, lot));
 }
 
 //+------------------------------------------------------------------+
-bool HasOpenTrade(int direction)
+double CalcLot(double slPoints)
 {
-   for(int i = PositionsTotal() - 1; i >= 0; i--) {
-      if(posInfo.SelectByIndex(i)) {
-         if(posInfo.Symbol() == _Symbol && posInfo.Magic() == InpMagicNumber) {
-            if(direction == 1 && posInfo.PositionType() == POSITION_TYPE_BUY)  return true;
-            if(direction == -1 && posInfo.PositionType() == POSITION_TYPE_SELL) return true;
-         }
-      }
-   }
-   return false;
+   double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
+   double riskMoney = balance * InpRiskPercent / 100.0;
+   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(tickValue <= 0 || tickSize <= 0 || slPoints <= 0) return NormalizeLot(0.01);
+   double lossPerLot = (slPoints * g_point / tickSize) * tickValue;
+   if(lossPerLot <= 0) return NormalizeLot(0.01);
+   return NormalizeLot(riskMoney / lossPerLot);
 }
 
 //+------------------------------------------------------------------+
 int CountMyTrades()
 {
-   int count = 0;
-   for(int i = PositionsTotal() - 1; i >= 0; i--) {
+   int n = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
       if(posInfo.SelectByIndex(i))
-         if(posInfo.Symbol() == _Symbol && posInfo.Magic() == InpMagicNumber)
-            count++;
-   }
-   return count;
+         if(posInfo.Symbol() == _Symbol && posInfo.Magic() == InpMagicNumber) n++;
+   return n;
 }
 
 //+------------------------------------------------------------------+
-void OpenTrade(int direction)
+void OpenTrade(int dir)
 {
-   if(HasOpenTrade(direction)) return;
-
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double lot = CalcLot(InpStopLossPoints);
    double sl, tp, price;
-   double lot = CalcLotSize(InpStopLoss);
+   double tpPoints = InpStopLossPoints * InpTPMultiplier;
 
-   if(direction == 1) {
+   if(dir == 1) {
       price = ask;
-      sl    = NormalizeDouble(price - InpStopLoss * g_point, g_digits);
-      tp    = NormalizeDouble(price + InpTakeProfit * g_point, g_digits);
-      if(trade.Buy(lot, _Symbol, price, sl, tp, "SZS_BUY")) {
-         Print("BUY ouvert @ ", price, " lot=", lot);
-         if(InpZoneRecovery) RegisterZone(trade.ResultOrder(), 1, price, lot);
-      }
+      sl    = NormalizeDouble(price - InpStopLossPoints * g_point, g_digits);
+      tp    = NormalizeDouble(price + tpPoints * g_point, g_digits);
+      if(trade.Buy(lot, _Symbol, price, sl, tp, "SZSv2_BUY"))
+         Print("BUY @ ", price, " SL=", sl, " TP=", tp, " lot=", lot);
    } else {
       price = bid;
-      sl    = NormalizeDouble(price + InpStopLoss * g_point, g_digits);
-      tp    = NormalizeDouble(price - InpTakeProfit * g_point, g_digits);
-      if(trade.Sell(lot, _Symbol, price, sl, tp, "SZS_SELL")) {
-         Print("SELL ouvert @ ", price, " lot=", lot);
-         if(InpZoneRecovery) RegisterZone(trade.ResultOrder(), -1, price, lot);
-      }
+      sl    = NormalizeDouble(price + InpStopLossPoints * g_point, g_digits);
+      tp    = NormalizeDouble(price - tpPoints * g_point, g_digits);
+      if(trade.Sell(lot, _Symbol, price, sl, tp, "SZSv2_SELL"))
+         Print("SELL @ ", price, " SL=", sl, " TP=", tp, " lot=", lot);
    }
 }
 
 //+------------------------------------------------------------------+
-void RegisterZone(ulong ticket, int dir, double price, double lot)
+void ManageTrailing()
 {
-   int idx = ArraySize(g_zones);
-   ArrayResize(g_zones, idx + 1);
-   g_zones[idx].ticket     = ticket;
-   g_zones[idx].direction  = dir;
-   g_zones[idx].entryPrice = price;
-   g_zones[idx].zoneHigh   = price + InpZoneSize * g_point;
-   g_zones[idx].zoneLow    = price - InpZoneSize * g_point;
-   g_zones[idx].lotSize    = lot;
-   g_zones[idx].level      = 0;
-   g_zones[idx].active     = true;
-}
-
-//+------------------------------------------------------------------+
-void ManageZoneRecovery()
-{
+   if(InpTrailingStop <= 0) return;
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-   for(int i = 0; i < ArraySize(g_zones); i++) {
-      if(!g_zones[i].active) continue;
-      if(g_zones[i].level >= InpMaxRecovery) continue;
+   for(int i = PositionsTotal() - 1; i >= 0; i--) {
+      if(!posInfo.SelectByIndex(i)) continue;
+      if(posInfo.Symbol() != _Symbol || posInfo.Magic() != InpMagicNumber) continue;
 
-      if(!PositionSelectByTicket(g_zones[i].ticket)) {
-         g_zones[i].active = false;
-         continue;
-      }
+      double openPrice = posInfo.PriceOpen();
+      double sl        = posInfo.StopLoss();
+      double tp        = posInfo.TakeProfit();
 
-      double curPrice = (g_zones[i].direction == 1) ? bid : ask;
-      bool needRecovery = false;
-
-      if(g_zones[i].direction == 1 && curPrice < g_zones[i].zoneLow)
-         needRecovery = true;
-      if(g_zones[i].direction == -1 && curPrice > g_zones[i].zoneHigh)
-         needRecovery = true;
-
-      if(needRecovery) {
-         double recLot = NormalizeLot(g_zones[i].lotSize * InpRecoveryLotMult);
-         double recTP, recSL;
-         int recDir = -g_zones[i].direction;
-
-         if(recDir == 1) {
-            recTP = NormalizeDouble(ask + InpRecoveryTP * g_point, g_digits);
-            recSL = NormalizeDouble(ask - InpStopLoss * g_point, g_digits);
-            if(trade.Buy(recLot, _Symbol, ask, recSL, recTP, "SZS_REC_BUY")) {
-               g_zones[i].level++;
-               g_zones[i].direction  = recDir;
-               g_zones[i].ticket     = trade.ResultOrder();
-               g_zones[i].entryPrice = ask;
-               g_zones[i].zoneHigh   = ask + InpZoneSize * g_point;
-               g_zones[i].zoneLow    = ask - InpZoneSize * g_point;
-               g_zones[i].lotSize    = recLot;
-               Print("Zone Recovery BUY niveau ", g_zones[i].level, " lot=", recLot);
-            }
-         } else {
-            recTP = NormalizeDouble(bid - InpRecoveryTP * g_point, g_digits);
-            recSL = NormalizeDouble(bid + InpStopLoss * g_point, g_digits);
-            if(trade.Sell(recLot, _Symbol, bid, recSL, recTP, "SZS_REC_SELL")) {
-               g_zones[i].level++;
-               g_zones[i].direction  = recDir;
-               g_zones[i].ticket     = trade.ResultOrder();
-               g_zones[i].entryPrice = bid;
-               g_zones[i].zoneHigh   = bid + InpZoneSize * g_point;
-               g_zones[i].zoneLow    = bid - InpZoneSize * g_point;
-               g_zones[i].lotSize    = recLot;
-               Print("Zone Recovery SELL niveau ", g_zones[i].level, " lot=", recLot);
-            }
+      if(posInfo.PositionType() == POSITION_TYPE_BUY) {
+         double profit = (bid - openPrice) / g_point;
+         if(profit >= InpTrailingStart) {
+            double newSL = NormalizeDouble(bid - InpTrailingStop * g_point, g_digits);
+            if(newSL > sl) trade.PositionModify(posInfo.Ticket(), newSL, tp);
+         }
+      } else {
+         double profit = (openPrice - ask) / g_point;
+         if(profit >= InpTrailingStart) {
+            double newSL = NormalizeDouble(ask + InpTrailingStop * g_point, g_digits);
+            if(sl == 0 || newSL < sl) trade.PositionModify(posInfo.Ticket(), newSL, tp);
          }
       }
    }
 }
 
 //+------------------------------------------------------------------+
-void ManageOpenTrades()
-{
-   if(InpTrailingStop <= 0) return;
-
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
-   for(int i = PositionsTotal() - 1; i >= 0; i--) {
-      if(!posInfo.SelectByIndex(i)) continue;
-      if(posInfo.Symbol() != _Symbol || posInfo.Magic() != InpMagicNumber) continue;
-
-      ulong ticket = posInfo.Ticket();
-      double sl    = posInfo.StopLoss();
-      double newSL;
-
-      if(posInfo.PositionType() == POSITION_TYPE_BUY) {
-         newSL = NormalizeDouble(bid - InpTrailingStop * g_point, g_digits);
-         if(newSL > sl + InpTrailingStep * g_point)
-            trade.PositionModify(ticket, newSL, posInfo.TakeProfit());
-      } else {
-         newSL = NormalizeDouble(ask + InpTrailingStop * g_point, g_digits);
-         if(newSL < sl - InpTrailingStep * g_point || sl == 0)
-            trade.PositionModify(ticket, newSL, posInfo.TakeProfit());
-      }
-   }
-}
-
-//+------------------------------------------------------------------+
-void CloseOldTrades()
-{
-   if(InpMaxMinutes <= 0) return;
-
-   for(int i = PositionsTotal() - 1; i >= 0; i--) {
-      if(!posInfo.SelectByIndex(i)) continue;
-      if(posInfo.Symbol() != _Symbol || posInfo.Magic() != InpMagicNumber) continue;
-
-      datetime openTime = (datetime)posInfo.Time();
-      int elapsedMin = (int)((TimeCurrent() - openTime) / 60);
-
-      if(elapsedMin >= InpMaxMinutes) {
-         trade.PositionClose(posInfo.Ticket(), 10);
-         Print("Trade fermé (timeout ", InpMaxMinutes, "min): ticket=", posInfo.Ticket());
-      }
-   }
-}
-
-//+------------------------------------------------------------------+
+// Track des pertes pour stop journalier
 void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest     &request,
                         const MqlTradeResult      &result)
 {
    if(trans.type == TRADE_TRANSACTION_DEAL_ADD) {
-      for(int i = 0; i < ArraySize(g_zones); i++) {
-         if(g_zones[i].ticket == trans.order && trans.deal_type == DEAL_TYPE_BUY)
-            g_zones[i].active = false;
+      if(HistoryDealSelect(trans.deal)) {
+         long magic = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
+         long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+         double profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
+                       + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
+                       + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+         if(magic == InpMagicNumber && entry == DEAL_ENTRY_OUT && profit < 0)
+            g_lossesToday++;
       }
    }
 }
 
 //+------------------------------------------------------------------+
-// Affichage dashboard sur le graphique
-void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
-{
-}
-
-//+------------------------------------------------------------------+
-double GetRSI()  { return GetIndicatorValue(hRSI_M, 0); }
-double GetADX()  { return GetIndicatorValue(hADX_M, 0); }
-double GetCCI()  { return GetIndicatorValue(hCCI_M, 0); }
-double GetAO()   { return GetIndicatorValue(hAO_M,  0); }
-
-//+------------------------------------------------------------------+
-// Dashboard visuel sur le graphique
 void DrawDashboard()
 {
-   double rsi   = GetRSI();
-   double adx   = GetADX();
-   double cci   = GetCCI();
-   double ao    = GetAO();
-   int    sig   = GetSignal();
-   int    trades = CountMyTrades();
-   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
-   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double dd = (balance > 0) ? (balance - equity) / balance * 100.0 : 0;
+   double rsi    = GetVal(hRSI_M5, 0, 1);
+   double adx    = GetVal(hADX_H1, 0, 1);
+   double atr    = GetVal(hATR_M5, 0, 1);
+   double ef     = GetVal(hEMAFast, 0, 1);
+   double es     = GetVal(hEMASlow, 0, 1);
+   int    trend  = GetTrend();
+   int    sig    = (trend != 0) ? GetEntrySignal(trend) : 0;
+   double spread = (SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID)) / g_point;
 
-   string sigText = (sig == 1) ? "STRONG BUY" : (sig == -1) ? "STRONG SELL" : "NEUTRE";
-   color  sigColor = (sig == 1) ? clrLime : (sig == -1) ? clrRed : clrGray;
+   string trendTxt  = (trend == 1) ? "UPTREND" : (trend == -1) ? "DOWNTREND" : "RANGE/NO TRADE";
+   string signalTxt = (sig == 1) ? ">> BUY SIGNAL <<" : (sig == -1) ? ">> SELL SIGNAL <<" : "Attente";
 
    Comment(
-      "=== SPECTRA ZONE SCALPER ===\n",
-      "Signal:    ", sigText, "\n",
-      "RSI(14):   ", DoubleToString(rsi, 2), "\n",
-      "ADX(14):   ", DoubleToString(adx, 2), "\n",
-      "CCI(20):   ", DoubleToString(cci, 2), "\n",
-      "AO:        ", DoubleToString(ao, 2), "\n",
-      "Trades:    ", trades, "/", InpMaxTrades, "\n",
-      "Drawdown:  ", DoubleToString(dd, 2), "%\n",
-      "Equity:    ", DoubleToString(equity, 2), "\n",
-      "Balance:   ", DoubleToString(balance, 2), "\n"
+      "=== SPECTRA ZONE SCALPER v2 ===\n",
+      "Tendance H1: ", trendTxt, "\n",
+      "Signal M5:   ", signalTxt, "\n",
+      "----------------------------\n",
+      "EMA21 H1:    ", DoubleToString(ef, g_digits), "\n",
+      "EMA50 H1:    ", DoubleToString(es, g_digits), "\n",
+      "ADX H1:      ", DoubleToString(adx, 2), "\n",
+      "RSI M5:      ", DoubleToString(rsi, 2), "\n",
+      "ATR (pts):   ", DoubleToString(atr / g_point, 0), "\n",
+      "Spread:      ", DoubleToString(spread, 0), " pts\n",
+      "----------------------------\n",
+      "Trades:      ", CountMyTrades(), "/", InpMaxTrades, "\n",
+      "Pertes/jour: ", g_lossesToday, "/", InpMaxLossesPerDay, "\n",
+      "Balance:     ", DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2), "\n"
    );
 }
-
-//+------------------------------------------------------------------+
-// Appel dashboard à chaque tick
-void OnTick_Dashboard() { DrawDashboard(); }
 //+------------------------------------------------------------------+
