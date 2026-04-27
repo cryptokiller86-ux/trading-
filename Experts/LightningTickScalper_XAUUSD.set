@@ -1,0 +1,36 @@
+; Lightning Tick Scalper - Configuration XAUUSD agressive
+; Trades de quelques secondes, 5 positions simultanées max
+; ATTENTION: nécessite broker à faible spread (ECN/RAW)
+
+InpSignalTF=1
+InpTickMode=true
+InpMaxSimultaneous=5
+InpCooldownMs=500
+InpTakeProfit=50
+InpStopLoss=80
+InpMaxHoldSeconds=60
+InpUseTrailing=true
+InpTrailingStart=20
+InpTrailingStep=10
+InpBreakEven=true
+InpBreakEvenAt=15
+InpRiskPercent=0.3
+InpAutoLot=true
+InpFixedLot=0.01
+InpMaxDailyLoss=5.0
+InpMaxDrawdown=10.0
+InpMaxSpread=30
+InpMinATR=50
+InpATRPeriod=14
+InpStartHour=7
+InpEndHour=21
+InpAvoidNews=true
+InpBBPeriod=20
+InpBBDeviation=2.0
+InpRSIPeriod=7
+InpRSIBuyTrig=30
+InpRSISellTrig=70
+InpVolumeAvgBars=10
+InpVolumeMult=1.5
+InpMagicNumber=999001
+InpShowDashboard=true
