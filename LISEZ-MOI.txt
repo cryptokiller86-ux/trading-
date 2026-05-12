@@ -1,0 +1,80 @@
+╔══════════════════════════════════════════════════════════════╗
+║         YassoBot — Copieur de signaux Telegram → MT5         ║
+║         Groupe surveillé : TheYassoGroup                     ║
+╚══════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ÉTAPE 1 — Obtenir tes clés Telegram API (GRATUIT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Ouvre https://my.telegram.org/apps dans ton navigateur
+2. Connecte-toi avec ton numéro de téléphone Telegram
+3. Clique sur "API development tools"
+4. Crée une application (nom au choix, ex: "MonBot")
+5. Récupère :
+   → api_id    (un nombre, ex: 12345678)
+   → api_hash  (une suite de lettres/chiffres)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ÉTAPE 2 — Remplir le fichier .env
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Ouvre le fichier ".env" (dans ce dossier) avec le Bloc-notes.
+Remplis chaque ligne :
+
+┌─────────────────────────────────────────────────────────────┐
+│ TELEGRAM_API_ID=12345678        ← ton api_id               │
+│ TELEGRAM_API_HASH=abcdef123...  ← ton api_hash             │
+│ TELEGRAM_PHONE=+33612345678     ← ton numéro (avec +33)    │
+│                                                             │
+│ MT5_LOGIN=12345678              ← numéro compte PUPrime     │
+│ MT5_PASSWORD=TonMotDePasse      ← mot de passe MT5          │
+│ MT5_SERVER=PUPrime-Live         ← nom du serveur PUPrime    │
+│                                                             │
+│ DEFAULT_LOT_SIZE=0.01           ← taille des lots           │
+│ MAX_TP_COUNT=1                  ← 1=seulement TP1           │
+└─────────────────────────────────────────────────────────────┘
+
+COMMENT TROUVER LE NOM DU SERVEUR PUPRIME ?
+  → Ouvre MT5 → Fichier → Ouvrir un compte
+  → Le nom du serveur apparaît dans la liste
+  → Exemple : PUPrime-Live  ou  PUPrimeLtd-Live
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ÉTAPE 3 — Lancer le bot
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Double-clique sur "LANCER.bat"
+
+La PREMIÈRE FOIS :
+  → Telegram t'envoie un code SMS sur ton téléphone
+  → Tape ce code dans la fenêtre noire
+  → C'est tout ! Le bot se souvient de ta session après.
+
+Les fois suivantes :
+  → Le bot démarre directement, aucun code demandé.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CE QUE FAIT LE BOT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ Surveille TOUS les messages de TheYassoGroup en temps réel
+✓ Ignore les messages qui ne sont PAS des signaux de trade
+✓ Détecte automatiquement : symbole, BUY/SELL, Entry, SL, TP
+✓ Ouvre immédiatement le trade sur MT5 PUPrime
+✓ Journal complet dans le fichier yasso_bot.log
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ IMPORTANT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• MT5 doit être ouvert et connecté pendant que le bot tourne
+• Le fichier .env ne doit JAMAIS être partagé (mots de passe)
+• Laisse la fenêtre noire ouverte — si tu la fermes, le bot s'arrête
+• Pour démarrer automatiquement au lancement de Windows :
+  → Copie le raccourci "Lancer YassoBot" dans :
+     C:\Users\TON_NOM\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup
