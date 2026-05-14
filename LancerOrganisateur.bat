@@ -25,6 +25,12 @@ echo.
 
 PowerShell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%"
 
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo  [ERREUR] Le script a rencontre une erreur ^(code : %ERRORLEVEL%^)
+    echo  Verifiez que PowerShell est bien installe sur votre systeme.
+)
+
 echo.
 echo  Termine.
 pause
